@@ -70,6 +70,31 @@ arquivo.ly ──convert-ly──▶ arquivo-2.26.ly ──lilypond + captura.ly
 - `git init` no projeto.
 
 ### Fase 1: captura mínima
+
+**Andamento (05/10/2026, passo 01):** contrato entre Scheme e Python fixado em
+`docs/passos/01-formato-eventos.md`, com exemplo executável em
+`testes/ly/01-contrato.ly` + `testes/ly/01-contrato.eventos.jsonl` (25 linhas,
+JSON Lines válido).
+
+**Andamento (05/10/2026, passo 02):** envelope e execução prontos.
+`scripts/ly2json.sh ARQ.ly [SAIDA_DIR]` faz `.ly → convert-ly → lilypond +
+captura → .eventos.jsonl + .midi + .lilypond.log`, e `ly/captura.ly` tem o
+esqueleto (`json`, `objeto`, `fracao`, `emitir`, `campos-tempo`, engraver de
+`Score` com `partitura`/`fim`, `cabecalho`). `testes/ly/02-minimo.ly` dá as 3
+linhas esperadas e o LVB (2.10.3) sai com status 0 em ~2,5 s. Descobertas:
+`-dno-print-pages` desliga o PDF (o `-dbackend=null` não existe); no bash, um
+`if ! cmd` zera o `$?` dentro do `then`, então o script testa o exit do
+`lilypond` sem `!` (senão a falha passava batida). Das 31 peças, 24 passam e 7
+não compilam mesmo sem a captura (causa pré-existente, à parte como os
+`musicxml_special/` do Hymn_Grabber): `Chop-28-2` (o `convert-ly` não converte
+`#(ly:set-option 'old-relative)`, status 2); `5.Inquietude`
+(`override-auto-beam-setting`), `chopin_nocturne_op9_n2` e
+`SchubertF-D899-2-Impromptu` (`set-octavation`), `diabeli.op163.s1-1` e
+`maple` (`\unfoldRepeats` com argumentos da sintaxe antiga, sem nem emitir
+`partitura`), `25EF-01` (`octave marks must precede duration`); status 3, com
+as linhas `error:` na saída. Nenhum erro cita `captura.ly`. O original em
+`dados/` segue intacto (o script só escreve em `SAIDA_DIR` e no temporário).
+
 - `ly/captura.ly`: notas, pausas e acordes com momento, pauta e voz.
 - Resolver as pegadinhas da injeção:
   - partitura sem `\layout` (só `\midi`): os engravers não rodam. Forçar um `\layout` pelo
