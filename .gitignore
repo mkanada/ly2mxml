@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 # acervo de teste e saídas intermediárias (MIDI, JSON, PDF)
 dados/
+# LilyPond baixado por scripts/instalar-lilypond.sh
+ferramentas/

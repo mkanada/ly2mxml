@@ -5,7 +5,7 @@ Plano escrito em 04/10/2026, antes de qualquer código.
 ## Objetivo
 
 Converter partituras de **piano solo** do **Mutopia** e de outros acervos públicos (`.ly` de várias
-versões, de 2.0 a 2.24) em MusicXML **para tocar e estudar**. O resultado precisa ter as notas
+versões, de 2.0 a 2.26) em MusicXML **para tocar e estudar**. O resultado precisa ter as notas
 certas: alturas, ritmo, vozes, compassos, fórmula de compasso, armadura, claves, ligaduras de
 prolongamento, quiálteras, apojaturas, repetições e casas. Dinâmica, articulação e texto ficam para
 uma fase opcional. O layout (quebras, posições) está fora do escopo.
@@ -23,11 +23,11 @@ e sintaxe que mudou entre versões (o `LVB_Sonate_02no1_1.ly` é 2.10.3 e usa `\
 ## Arquitetura: o LilyPond interpreta, o Python escreve
 
 ```
-arquivo.ly ──convert-ly──▶ arquivo-2.24.ly ──lilypond + captura.ly──▶ eventos.json ──python──▶ arquivo.musicxml
+arquivo.ly ──convert-ly──▶ arquivo-2.26.ly ──lilypond + captura.ly──▶ eventos.json ──python──▶ arquivo.musicxml
                                                └──────────────────────▶ arquivo.midi (gabarito)
 ```
 
-1. **Atualização**: `convert-ly` leva o arquivo para a sintaxe 2.24. Ele fica numa cópia
+1. **Atualização**: `convert-ly` leva o arquivo para a sintaxe 2.26. Ele fica numa cópia
    temporária; o original não é alterado.
 2. **Captura (Scheme)**: um arquivo-envelope inclui `ly/captura.ly` e depois o `.ly` do usuário. A
    captura acrescenta engravers às pautas e vozes. Em vez de desenhar, eles gravam cada evento já
@@ -53,8 +53,11 @@ arquivo.ly ──convert-ly──▶ arquivo-2.24.ly ──lilypond + captura.ly
 ## Fases
 
 ### Fase 0: ambiente e acervo de teste
-- Instalar o LilyPond 2.24 (o binário oficial do lilypond.org num diretório local não precisa de
-  sudo; o `apt` também tem o 2.24.3).
+- ~~Instalar o LilyPond~~ (feito): `scripts/instalar-lilypond.sh` baixa o binário oficial 2.26.0
+  para `ferramentas/` (fora do git), confere o sha256 e cria o link `ferramentas/lilypond`. Sem apt
+  e sem sudo. Teste com o `LVB_Sonate_02no1_1.ly` (2.10.3): o `convert-ly` atualizou para 2.26 e o
+  `lilypond` compilou em 3 s, gerando PDF e MIDI. O `-dbackend=null` ainda gerou o PDF; a Fase 1
+  precisa achar a opção que desliga a saída gráfica.
 - Criar `.venv` com `music21`, `verovio` e `mido`.
 - Baixar um recorte do Mutopia (o repositório `MutopiaProject/MutopiaProject` no GitHub tem os
   `.ly`): umas 30 peças de piano de épocas e versões variadas, além do `LVB_Sonate_02no1_1.ly`.
@@ -113,7 +116,7 @@ arquivo.ly ──convert-ly──▶ arquivo-2.24.ly ──lilypond + captura.ly
 | Vozes que mudam de pauta (`\change Staff`), comum em piano | O evento sai na voz de origem com a pauta do momento; no MusicXML vira `<staff>` por nota, o que o formato permite |
 | Feixes manuais `[ ]` contra os automáticos | Para "tocar/estudar", deixar o music21 calcular; os manuais entram na Fase 5 |
 | Peças com muitos movimentos ou `\book` | Um MusicXML por `\score`, com o número no nome |
-| Versão do LilyPond | Fixar a 2.24.x e registrar no `_resumo.csv` |
+| Versão do LilyPond | Fixada em 2.26.0 no `instalar-lilypond.sh`; registrar no `_resumo.csv` |
 
 ## O que reaproveitar do Hymn_Grabber
 
