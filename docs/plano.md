@@ -58,9 +58,15 @@ arquivo.ly ──convert-ly──▶ arquivo-2.26.ly ──lilypond + captura.ly
   e sem sudo. Teste com o `LVB_Sonate_02no1_1.ly` (2.10.3): o `convert-ly` atualizou para 2.26 e o
   `lilypond` compilou em 3 s, gerando PDF e MIDI. O `-dbackend=null` ainda gerou o PDF; a Fase 1
   precisa achar a opção que desliga a saída gráfica.
-- Criar `.venv` com `music21`, `verovio` e `mido`.
-- Baixar um recorte do Mutopia (o repositório `MutopiaProject/MutopiaProject` no GitHub tem os
-  `.ly`): umas 30 peças de piano de épocas e versões variadas, além do `LVB_Sonate_02no1_1.ly`.
+- Criar `.venv` com `music21`, `verovio` e `mido` (feito): `requirements.txt` fixa
+  `music21==10.5.0`, `verovio==6.3.0`, `mido==1.3.3`. Instalar com
+  `.venv/bin/pip install -r requirements.txt`.
+- Baixar um recorte do Mutopia (feito): `scripts/baixar-acervo.sh` baixa 30 peças de
+  piano + o `LVB_Sonate_02no1_1.ly` (31 `.ly` no total, de 2.6.0 a 2.24.3, com
+  repetição/quiáltera/apojatura/casas no conjunto) para `dados/` (fora do git),
+  do commit fixado `2144afd` (master em 07/11/2024), com `dados/MANIFESTO.txt`.
+  `convert-ly` leva a 2.26 tanto o LVB (2.10.3) quanto a mais antiga (2.6.0), e o
+  `lilypond` compila o LVB convertido em ~3,5 s, gerando PDF e MIDI.
 - `git init` no projeto.
 
 ### Fase 1: captura mínima

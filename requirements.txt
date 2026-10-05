@@ -1,0 +1,5 @@
+# Dependências do ly2mxml (Fase 0). Instalar com: .venv/bin/pip install -r requirements.txt
+# Versões fixadas em 05/10/2026 junto ao LilyPond 2.26.0.
+music21==10.5.0
+verovio==6.3.0
+mido==1.3.3
