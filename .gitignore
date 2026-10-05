@@ -1,0 +1,5 @@
+.venv/
+__pycache__/
+*.pyc
+# acervo de teste e saídas intermediárias (MIDI, JSON, PDF)
+dados/
