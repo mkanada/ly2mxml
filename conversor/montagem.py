@@ -4,6 +4,7 @@ Uma parte de piano com uma `PartStaff` por pauta; as vozes do LilyPond viram `<v
 cada pauta. Tempo em `Fraction` na unidade semibreve; a conversão para `quarterLength` (× 4)
 acontece só aqui, e nunca passa por `float`.
 """
+import re
 import xml.etree.ElementTree as ET
 from bisect import bisect_right
 from dataclasses import dataclass, field
@@ -11,7 +12,7 @@ from fractions import Fraction
 from pathlib import Path
 
 from music21 import (bar, clef, duration, key, layout, metadata, meter, note, chord, pitch,
-                     stream, tie)
+                     spanner, stream, tie)
 
 from .eventos import Figura
 
@@ -34,6 +35,7 @@ class MedidaCompasso:
     numero: int = 0
     sufixo: str = ""
     implicito: bool = False
+    anacruse: bool = False    # compasso de anacruse (o seguinte é o compasso cheio)
 
     @property
     def rotulo(self):
@@ -65,7 +67,7 @@ class Montagem:
 # ---------------------------------------------------------------------------
 
 def _compassos(m: Montagem):
-    """Os compassos do MusicXML, a partir das linhas `compasso`."""
+    """Os compassos do MusicXML, a partir das linhas `compasso` (e das `barra` na cadenza)."""
     ps = m.ps
     brutos = []
     for c in sorted(ps.compassos, key=lambda x: x.t):
@@ -80,21 +82,55 @@ def _compassos(m: Montagem):
     for i, c in enumerate(brutos):
         t1 = brutos[i + 1].t if i + 1 < len(brutos) else ps.fim
         medidas.append(MedidaCompasso(c.c, c.t, t1, c.tam, c.pos, c.medindo))
+
+    # Cadenza (e compasso longo): o LilyPond não abre compasso na `\bar` dentro dela. O trecho
+    # depois da barra vira outro compasso, com o mesmo número.
+    barras = sorted({b.t for b in ps.barras if b.glifo not in ("", "|:", ":|:")})
+    divididas = []
+    for md in medidas:
+        real = md.t1 - md.t0
+        if real > md.tam:
+            cortes = [t for t in barras if md.t0 < t < md.t1]
+            inicio = md.t0
+            for corte in cortes + [md.t1]:
+                divididas.append(MedidaCompasso(
+                    md.c, inicio, corte, md.tam, md.pos if inicio == md.t0 else ZERO,
+                    md.medindo if inicio == md.t0 else True))
+                inicio = corte
+        else:
+            divididas.append(md)
+    medidas = divididas
+    for md in medidas:
+        real = md.t1 - md.t0
+        if not md.medindo:
+            m.avisar(f"cadenza no compasso {md.c} ({real * 4} semínimas)")
+        elif real > md.tam:
+            m.avisar(f"compasso {md.c} mais longo que a fórmula ({real * 4} semínimas)")
     _numerar(medidas)
     m.implicitos = [md.rotulo for md in medidas if md.implicito]
     return medidas
 
 
 def _numerar(medidas):
-    """Número impresso: o `c` do LilyPond, com a anacruse inicial como 0."""
+    """Número impresso: o `c` do LilyPond, com a anacruse inicial como 0.
+
+    Dois compassos seguidos com o mesmo `c` são um compasso partido (anacruse no meio, compasso
+    cortado antes de uma repetição, cadenza): o que não é o compasso "de verdade" é implícito e
+    leva sufixo para o número continuar único.
+    """
     for i, md in enumerate(medidas):
         md.numero = md.c
-        if i == 0 and md.pos < 0 and len(medidas) > 1 and medidas[1].c == md.c:
+        seguinte_igual = i + 1 < len(medidas) and medidas[i + 1].c == md.c
+        if seguinte_igual and md.pos < 0:
+            # Anacruse: o compasso seguinte é o compasso cheio. A do começo da peça é o 0.
             md.numero = md.c - 1
-            md.implicito = True
-        elif i > 0 and md.c == medidas[i - 1].c and md.numero == medidas[i - 1].numero:
-            # O mesmo `c` duas vezes: o segundo é a continuação do primeiro e não conta.
-            md.sufixo = "b" if not medidas[i - 1].sufixo else chr(ord(medidas[i - 1].sufixo) + 1)
+            md.implicito = md.anacruse = True
+            if i > 0:
+                md.sufixo = "b"
+        elif i > 0 and md.c == medidas[i - 1].c and not medidas[i - 1].anacruse:
+            # Continuação de um compasso partido: "12b", "12c"...
+            anterior = medidas[i - 1]
+            md.sufixo = chr(ord(anterior.sufixo or "a") + 1)
             md.implicito = True
 
 
@@ -381,6 +417,8 @@ def _montar_pauta(m, ps, parte, n_pauta, base_voz, acordes, numeros, camadas, me
             if md.t1 == b.t:
                 obj.rightBarline = bar.Barline(estilo)
 
+    _repeticoes(m, ps, parte, por_medida, medidas, compasso_de)
+
     # Apojaturas: o instante e o compasso onde cada uma entra.
     gracas = _posicionar_gracas(m, ps, acordes, medidas, compasso_de)
     qi = _intervalos_quialtera(ps)
@@ -408,6 +446,89 @@ def _montar_pauta(m, ps, parte, n_pauta, base_voz, acordes, numeros, camadas, me
             _preencher_voz(m, v, md, [], qi)
             obj.insert(0, v)
         parte.insert(md.t0 * QUATRO, obj)
+
+
+def _repeticoes(m, ps, parte, por_medida, medidas, compasso_de):
+    """Barras de repetição (`:|` e `|:`) e casas (`<ending>`), em todas as pautas.
+
+    Vêm de `rep-inicio`/`rep-fim` (`\\repeat volta`), de `repeatCommands` à mão
+    (`start-repeat`, `end-repeat`, `(volta "1.")`) e dos `volta` do `\\alternative`.
+    """
+    inicios, fins, casas = {}, [], []     # inicios: t -> vezes
+    abertas = []                           # casas abertas: (t, numeros, texto)
+    for r in ps.repeticoes:
+        if r.tipo == "rep-inicio":
+            inicios.setdefault(r.t, r.dados["vezes"])
+        elif r.tipo == "rep-fim":
+            fins.append(r.t)
+        elif r.tipo == "repeticao":
+            for cmd in r.dados["cmds"]:
+                if cmd[0] == "start-repeat":
+                    inicios.setdefault(r.t, cmd[1] if len(cmd) > 1 else 2)
+                elif cmd[0] == "end-repeat":
+                    fins.append(r.t)
+                elif cmd[0] == "volta":
+                    if cmd[1] is False:
+                        if abertas:
+                            ini, numeros, _ = abertas.pop()
+                            casas.append((ini, r.t, numeros))
+                    else:
+                        texto = str(cmd[1])
+                        numeros = [int(x) for x in re.findall(r"\d+", texto)]
+                        abertas.append((r.t, numeros, texto))
+        elif r.tipo == "volta":
+            if r.dados["dir"] == "inicio":
+                abertas.append((r.t, list(r.dados["numeros"]), None))
+            else:
+                for k in range(len(abertas) - 1, -1, -1):
+                    if abertas[k][1] == list(r.dados["numeros"]):
+                        casas.append((abertas.pop(k)[0], r.t, list(r.dados["numeros"])))
+                        break
+    for ini, numeros, _ in abertas:
+        casas.append((ini, ps.fim, numeros))
+        m.avisar(f"casa {numeros} sem fim: vai até o fim da peça")
+    fins = sorted(set(fins))
+
+    # Quantas vezes cada repetição se toca: o `vezes` do início que ela fecha.
+    eventos_ = [(t, 0, None) for t in fins] + [(t, 1, v) for t, v in inicios.items()]
+    pilha, vezes_do_fim = [], {}
+    for t, tipo, v in sorted(eventos_, key=lambda x: (x[0], x[1])):
+        if tipo == 1:
+            pilha.append(v)
+        else:
+            vezes_do_fim[t] = pilha.pop() if pilha else 2
+
+    por_t0 = {md.t0: i for i, md in enumerate(medidas)}
+    por_t1 = {md.t1: i for i, md in enumerate(medidas)}
+    for t in inicios:
+        i = por_t0.get(t)
+        if i is None:
+            i = medidas.index(compasso_de(t))
+            m.avisar(f"início de repetição no meio do compasso {medidas[i].rotulo}: "
+                     f"movido para o começo dele")
+        por_medida[i].leftBarline = bar.Repeat(direction="start")
+    for t in fins:
+        i = por_t1.get(t)
+        if i is None:
+            i = medidas.index(compasso_de(t))
+            m.avisar(f"fim de repetição no meio do compasso {medidas[i].rotulo}: "
+                     f"movido para o fim dele")
+        vezes = vezes_do_fim[t]
+        por_medida[i].rightBarline = (bar.Repeat(direction="end", times=vezes) if vezes > 2
+                                      else bar.Repeat(direction="end"))
+
+    for ini, fim, numeros in sorted(casas):
+        dentro = [obj for md, obj in zip(medidas, por_medida)
+                  if md.t0 >= ini and md.t1 <= fim]
+        if not dentro:
+            dentro = [obj for md, obj in zip(medidas, por_medida)
+                      if md.t0 < fim and md.t1 > ini]
+            m.avisar(f"casa {numeros} começa ou termina no meio de um compasso: "
+                     f"tomados os compassos que a contêm")
+        if not dentro:
+            continue
+        numero = ", ".join(str(n) for n in numeros) if numeros else ""
+        parte.insert(0, spanner.RepeatBracket(dentro, number=numero or "1"))
 
 
 def _posicionar_gracas(m, ps, acordes, medidas, compasso_de):
@@ -480,7 +601,7 @@ def _preencher_voz(m, voz, md, pedacos, quialteras):
         _inserir_pausa_escondida(voz, md, cursor, md.t1)
     elif not pedacos:
         r = note.Rest()
-        r.duration = duration.Duration(md.tam * QUATRO)
+        r.duration = duration.Duration((md.t1 - md.t0) * QUATRO)
         r.fullMeasure = True
         r.style.hideObjectOnPrint = True
         voz.insert(0, r)

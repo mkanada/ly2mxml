@@ -246,8 +246,32 @@ pauta, `StaffGroup` com chave; o music21 exporta como **um** `<part>` com `<stav
   (`13-apojaturas.ly`): a comparação detecta e desconta o atraso. A janela de uma apojatura
   começa na nota anterior **da mesma voz** (com a de qualquer voz, uma nota da outra mão
   encurtava a janela do `\afterGrace`).
-- Nas 31 peças, `comparar-midi.py` dá OK em todas as que o `lilypond` compila, **sem** as
-  repetições e os compassos incompletos (passos 14 e 15).
+- Nas 31 peças, `comparar-midi.py` dá OK nas 24 que o `lilypond` compila (as outras 7 são as do
+  passo 02).
+
+**Andamento (07/10/2026, passos 14 e 15):** repetições, casas e compassos partidos.
+
+- *Repetições.* `rep-inicio`/`rep-fim`/`repeatCommands` (união, sem duplicar o mesmo instante)
+  viram `bar.Repeat` em todas as pautas; o `times` vem do `repeat-count` do início que cada fim
+  fecha (pilha, como parênteses). As casas vêm dos `volta` do `\alternative` e do
+  `(volta "1.")` à mão, e viram `RepeatBracket` por pauta (`<ending number="1,2">`). Os eventos
+  de salto (segno, coda, D.S., fine) e o tremolo geram só um aviso na captura.
+- *`\repeat percent`.* Confirmado que **não** sai desdobrado sozinho (o plano dizia que sim):
+  `captura-preparar` reconstrói o `\score` com `\unfoldRepeats percent` quando acha
+  `PercentRepeatedMusic` na música, mantendo cabeçalho e saídas. Verificado com 16 notas em
+  vez de 8.
+- *Comparação com as repetições.* `notas_do_musicxml(expandir=True)` percorre as repetições e as
+  casas na ordem de execução (forward/backward, `times`, passadas das casas) e compara com o MIDI
+  da partitura `so_midi` gêmea (a cópia `\unfoldRepeats`): `KV331_1_1_tema`, `intermezzo`,
+  `No03_Albumblatt` batem desdobradas, como a `fur_Elise` e a `gymnopedie_1` batem sem desdobrar.
+- *Compassos partidos.* O tamanho de um compasso é sempre `próximo.t - t`, então os curtos já
+  saem certos; o que foi preciso é a numeração: dois compassos seguidos com o mesmo `c` são um
+  compasso partido, e o segundo é `implicit="yes"` com sufixo (`6b`); a anacruse (no começo ou no
+  meio) é o que tem `pos < 0`, e leva o número anterior ao `c`. Um `\partial 4` no meio dá um
+  compasso com `pos` **positivo** (`1/4`) na 2.26, e não negativo como o passo previa; não muda
+  nada porque vale o tamanho real.
+- *Cadenza.* O trecho depois de um `\bar` dentro da cadenza vira outro compasso (mesmo `c`,
+  `implicit`), com o aviso `cadenza no compasso N (X semínimas)`.
 
 ### Fase 4: lote e regressão (o ciclo que funcionou no Hymn_Grabber)
 - `scripts/converter-todos.py`: converte o acervo em paralelo e grava:

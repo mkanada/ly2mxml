@@ -139,6 +139,7 @@
 
 #(define (emitir-nota ctx voz ev lig-acorde)
    (let ((pitch (ly:event-property ev 'pitch)))
+
      (if (not (ly:pitch? pitch))
          ;; Percussão (`drum-type`): sem altura, não entra no MusicXML.
          (emitir `((tipo . "aviso") (p . ,captura-n-partitura)
@@ -187,6 +188,12 @@
                        (campos-voz ctx voz)
                        `((dir . "fim") (num . null) (den . null))))))
 
+% Linha de aviso: a captura avisa sem interromper (o leitor repassa ao usuário).
+#(define (captura-aviso ctx texto)
+   (emitir `((tipo . "aviso") (p . ,captura-n-partitura)
+             (t . ,(fracao (ly:moment-main (ly:context-current-moment ctx))))
+             (texto . ,texto))))
+
 % Engraver de `Voice` (passo 03): linhas `voz`, `nota`, `pausa`,
 % `pausa-compasso` e `quialtera`. As notas esperam até o
 % `stop-translation-timestep` porque, num acorde ligado `<g b>2~`, o
@@ -207,7 +214,12 @@
        ((tie-event eng ev) (set! lig-acorde #t))
        ((rest-event eng ev) (emitir-pausa ctx voz ev))
        ((multi-measure-rest-event eng ev) (emitir-pausa-compasso ctx voz ev))
-       ((tuplet-span-event eng ev) (emitir-quialtera ctx voz ev)))
+       ((tuplet-span-event eng ev) (emitir-quialtera ctx voz ev))
+       ;; Passo 14: o tremolo sai como notas simples (a fase 5 trata do símbolo).
+       ((tremolo-event eng ev) (captura-aviso ctx "tremolo escrito como nota simples"))
+       ((tremolo-span-event eng ev)
+        (if (= (ly:event-property ev 'span-direction) -1)
+            (captura-aviso ctx "tremolo escrito como notas simples"))))
       ((stop-translation-timestep eng)
        (for-each (lambda (ev) (emitir-nota ctx voz ev lig-acorde)) (reverse notas))
        (set! notas '())
@@ -336,6 +348,11 @@
         (emitir (append `((tipo . "rep-inicio") (p . ,p))
                         (campos-tempo ctx)
                         `((vezes . ,(ly:event-property ev 'repeat-count 2))))))
+       ;; Saltos (D.C., D.S., Fine, Coda) não viram MusicXML por enquanto: só aviso.
+       ((segno-mark-event eng ev) (captura-aviso ctx "segno ignorado"))
+       ((coda-mark-event eng ev) (captura-aviso ctx "coda ignorada"))
+       ((dal-segno-event eng ev) (captura-aviso ctx "D.S./D.C. ignorado"))
+       ((fine-event eng ev) (captura-aviso ctx "fine ignorado"))
        ((volta-repeat-end-event eng ev)
         (emitir (append `((tipo . "rep-fim") (p . ,p))
                         (campos-tempo ctx)
@@ -394,13 +411,37 @@
 % engravers rodem (precisam de um \layout) e para que toda partitura capturada
 % gere um MIDI (o passo 06 compara os dois). Com LY2MXML_SEM_MIDI=1 o \midi
 % não é acrescentado (o ly2mxml.py usa isso quando não vai comparar).
-#(define captura-sem-midi (and (getenv "LY2MXML_SEM_MIDI") #t))
+#(define captura-sem-midi
+   (let ((v (getenv "LY2MXML_SEM_MIDI")))
+     (and v (not (string-null? v)))))
 
 #(define (captura-tipo od)
    (module-ref (ly:output-def-scope od) 'output-def-kind #f))
 
-#(define (captura-preparar score)
-   (let* ((ods (ly:score-output-defs score))
+% Passo 14: `\repeat percent` perde a segunda vez na captura; o `\unfoldRepeats percent`
+% resolve. Só mexe no \score que tem percent, e reconstrói mantendo cabeçalho e saídas.
+#(define (captura-tem-percent? music)
+   (let ((achou #f))
+     (music-map (lambda (m)
+                  (if (eq? 'PercentRepeatedMusic (ly:music-property m 'name))
+                      (set! achou #t))
+                  m)
+                music)
+     achou))
+
+#(define (captura-desdobrar-percent score)
+   (if (captura-tem-percent? (ly:score-music score))
+       (let ((novo (ly:make-score #{ \unfoldRepeats percent #(ly:score-music score) #})))
+         (if (module? (ly:score-header score))
+             (ly:score-set-header! novo (ly:score-header score)))
+         (for-each (lambda (od) (ly:score-add-output-def! novo od))
+                   (ly:score-output-defs score))
+         novo)
+       score))
+
+#(define (captura-preparar score0)
+   (let* ((score (captura-desdobrar-percent score0))
+          (ods (ly:score-output-defs score))
           (tem-layout (any (lambda (od) (eq? (captura-tipo od) 'layout)) ods))
           (tem-midi (any (lambda (od) (eq? (captura-tipo od) 'midi)) ods)))
      ;; Só \midi: layout marcado, para o leitor poder descartar a partitura.

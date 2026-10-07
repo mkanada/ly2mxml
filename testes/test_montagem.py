@@ -121,3 +121,50 @@ def test_bate_com_o_midi(nome):
     r = subprocess.run([sys.executable, str(RAIZ / "scripts" / "comparar-midi.py"),
                         str(TESTES_LY / f"{nome}.ly")], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+@pytest.mark.lilypond
+def test_repeticoes_14(tmp_path):
+    r, raiz_ = converter(tmp_path, "14-repeticoes")
+    compassos = raiz_.findall("part/measure")
+    barras = [(c.get("number"), b.get("location"), b.find("repeat").get("direction"),
+               b.find("repeat").get("times")) for c in compassos for b in c.findall("barline")
+              if b.find("repeat") is not None]
+    assert ("1", "left", "forward", None) in barras or ("1", None, "forward", None) in barras
+    assert any(d == "backward" and t == "3" for _, _, d, t in barras)
+    casas = [(e.get("number"), e.get("type")) for e in raiz_.iter("ending")]
+    assert ("1,2", "start") in casas and ("1,2", "stop") in casas
+    assert ("3", "start") in casas and ("3", "stop") in casas
+    avisos = r.gravadas[0].avisos
+    assert any("tremolo" in a for a in avisos)
+
+
+@pytest.mark.lilypond
+def test_percent_sai_desdobrado(tmp_path):
+    # \repeat percent 2 { 8 colcheias } dá 16 notas, não 8.
+    r, _ = converter(tmp_path, "14-repeticoes")
+    notas = [a for v in r.gravadas[0].partitura.vozes.values() for a in v.acordes
+             if a.pauta == 1 and a.alturas and a.figura.dur == 1 / 8]
+    assert len(notas) >= 16
+
+
+@pytest.mark.lilypond
+def test_compassos_15(tmp_path):
+    r, raiz_ = converter(tmp_path, "15-compassos")
+    numeros = [(c.get("number"), c.get("implicit")) for c in raiz_.findall("part/measure")]
+    assert numeros[0] == ("0", "yes")
+    assert ("6b", "yes") in numeros and ("8b", "yes") in numeros     # depois das cadenzas
+    assert numeros[-2:] == [("50", "no"), ("51", "no")]
+    avisos = r.gravadas[0].avisos
+    assert any("cadenza no compasso 6" in a for a in avisos)
+    assert any("cadenza no compasso 8" in a for a in avisos)
+
+
+@pytest.mark.lilypond
+@pytest.mark.parametrize("nome", ["14-repeticoes", "15-compassos"])
+def test_14_15_batem_com_o_midi(nome):
+    import subprocess, sys
+    from conftest import RAIZ
+    r = subprocess.run([sys.executable, str(RAIZ / "scripts" / "comparar-midi.py"),
+                        str(TESTES_LY / f"{nome}.ly")], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr

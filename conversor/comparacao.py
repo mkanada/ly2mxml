@@ -6,6 +6,7 @@ Usada por `scripts/json-vs-midi.py` (passo 06), `scripts/comparar-midi.py` (pass
 nas apojaturas). Tempo em ticks só dentro da comparação.
 """
 import bisect
+import re
 from collections import defaultdict
 from fractions import Fraction
 
@@ -250,33 +251,44 @@ def comparar_partitura(principais, apojaturas, midi):
 PASSOS = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 
 
-def notas_do_musicxml(caminho):
-    """Lê as notas de um MusicXML escrito por `conversor.montagem`.
-
-    Não usa o music21: o music21 tocaria apojaturas e ligaduras do jeito dele, e a comparação
-    mediria o music21. Aqui cada nota é lida como está no arquivo. Devolve
-    `(principais, apojaturas)` no mesmo formato de `scripts/json-vs-midi.py`: ligaduras já
-    juntadas, apojatura com o `ini` da nota principal que a segue.
-    Repetições não são desdobradas.
-    """
+def _ler_compassos(caminho):
+    """Compassos de cada parte do MusicXML: dicionários com as notas (tempo relativo ao início
+    do compasso, em semínimas), o tamanho, a repetição e as casas."""
     import xml.etree.ElementTree as ET
 
     raiz = ET.parse(str(caminho)).getroot()
-    principais, apojaturas = [], []
+    partes = []
     for parte in raiz.findall("part"):
-        inicio_compasso = Fraction(0)          # em semínimas
         divisoes = 1
-        abertas = {}                      # (voz, midi) -> nota aberta por ligadura
-        for compasso in parte.findall("measure"):
-            numero = compasso.get("number", "?")
-            cursor = 0                    # em divisões, desde o início do compasso
+        compassos = []
+        casa = None                       # números da casa em que estamos
+        for el_compasso in parte.findall("measure"):
+            md = {"numero": el_compasso.get("number", "?"), "notas": [], "avanco": 0,
+                  "forward": False, "backward": False, "vezes": 2, "casas": None}
+            cursor = 0
             maior = 0
             ultimo_inicio = 0
-            for el in compasso:
+            fecha_casa = False
+            for el in el_compasso:
                 if el.tag == "attributes":
                     d = el.find("divisions")
                     if d is not None:
                         divisoes = int(d.text)
+                elif el.tag == "barline":
+                    rep = el.find("repeat")
+                    fim = el.get("location", "right") == "right"
+                    if rep is not None:
+                        if rep.get("direction") == "forward":
+                            md["forward"] = True
+                        else:
+                            md["backward"] = True
+                            md["vezes"] = int(rep.get("times", "2"))
+                    end = el.find("ending")
+                    if end is not None:
+                        if end.get("type") == "start":
+                            casa = {int(x) for x in re.findall(r"\d+", end.get("number", ""))}
+                        else:
+                            fecha_casa = True
                 elif el.tag == "backup":
                     cursor -= int(el.find("duration").text)
                 elif el.tag == "forward":
@@ -292,35 +304,96 @@ def notas_do_musicxml(caminho):
                         p = el.find("pitch")
                         midi = (12 * (int(p.find("octave").text) + 1) + PASSOS[p.find("step").text]
                                 + int(float(p.findtext("alter", "0"))))
-                        voz = el.findtext("voice", "1")
-                        staff = el.findtext("staff", "1")
-                        ligas = {t.get("type") for t in el.findall("tie")}
-                        ini = (inicio_compasso + Fraction(inicio, divisoes)) / 4
-                        nota = {"ini": ini, "dur": Fraction(dur, divisoes) / 4, "midi": midi,
-                                "c": numero, "voz": (voz, staff), "lig": "start" in ligas,
-                                "g": Fraction(0), "continuacoes": []}
-                        chave = (voz, midi)
-                        anterior = abertas.get(chave)
-                        if graca:
-                            nota["g"] = Fraction(-1)
-                            apojaturas.append(nota)
-                            if "start" in ligas:
-                                abertas[chave] = nota
-                        elif "stop" in ligas and anterior is not None and anterior["g"] == 0:
-                            anterior["dur"] = ini + nota["dur"] - anterior["ini"]
-                            anterior["continuacoes"].append(ini)
-                            if "start" not in ligas:
-                                del abertas[chave]
-                        else:
-                            principais.append(nota)
-                            if "start" in ligas:
-                                abertas[chave] = nota
-                            else:
-                                abertas.pop(chave, None)
+                        md["notas"].append({
+                            "ini": Fraction(inicio, divisoes),
+                            "dur": Fraction(dur, divisoes), "midi": midi,
+                            "voz": el.findtext("voice", "1"),
+                            "ligas": {t.get("type") for t in el.findall("tie")},
+                            "graca": graca})
                     if not acorde:
                         cursor += dur
                     maior = max(maior, cursor)
-            inicio_compasso += Fraction(maior, divisoes)    # em semínimas
+            md["avanco"] = Fraction(maior, divisoes)
+            md["casas"] = casa
+            if fecha_casa:
+                casa = None
+            compassos.append(md)
+        partes.append(compassos)
+    return partes
+
+
+def _ordem_de_execucao(compassos):
+    """Índices dos compassos na ordem em que são tocados, com as repetições desdobradas.
+
+    Uma repetição vai do `forward` (ou do começo) ao `backward`; a casa só toca nas passadas
+    que ela numera. O `times` do `backward` diz quantas passadas há (2 se omitido).
+    """
+    ordem = []
+    inicio, passada, i, saltou, passos = 0, 1, 0, False, 0
+    while i < len(compassos):
+        passos += 1
+        if passos > 100 * (len(compassos) + 1):
+            break                              # estrutura de repetição malformada
+        md = compassos[i]
+        if md["forward"] and not saltou:
+            inicio, passada = i, 1
+        saltou = False
+        if md["casas"] is not None and passada not in md["casas"]:
+            i += 1
+            continue
+        ordem.append(i)
+        if md["backward"] and passada < md["vezes"]:
+            passada += 1
+            i, saltou = inicio, True
+            continue
+        if md["backward"]:
+            passada, inicio = 1, i + 1
+        i += 1
+    return ordem
+
+
+def notas_do_musicxml(caminho, expandir=False):
+    """Lê as notas de um MusicXML escrito por `conversor.montagem`.
+
+    Não usa o music21: o music21 tocaria apojaturas e ligaduras do jeito dele, e a comparação
+    mediria o music21. Aqui cada nota é lida como está no arquivo. Devolve
+    `(principais, apojaturas)` no mesmo formato de `scripts/json-vs-midi.py`: ligaduras já
+    juntadas, apojatura com o `ini` da nota principal que a segue. Com `expandir`, as repetições
+    e as casas são desdobradas na ordem em que são tocadas (para comparar com o MIDI de um
+    `\\score` com `\\unfoldRepeats`); sem ele, cada trecho vale uma vez, como no MIDI do mesmo
+    `\\score`.
+    """
+    principais, apojaturas = [], []
+    for compassos in _ler_compassos(caminho):
+        ordem = _ordem_de_execucao(compassos) if expandir else range(len(compassos))
+        inicio_compasso = Fraction(0)          # em semínimas
+        abertas = {}                           # (voz, midi) -> nota aberta por ligadura
+        for i in ordem:
+            md = compassos[i]
+            for n in md["notas"]:
+                ini = (inicio_compasso + n["ini"]) / 4
+                nota = {"ini": ini, "dur": n["dur"] / 4, "midi": n["midi"],
+                        "c": md["numero"], "voz": n["voz"], "lig": "start" in n["ligas"],
+                        "g": Fraction(0), "continuacoes": []}
+                chave = (n["voz"], n["midi"])
+                anterior = abertas.get(chave)
+                if n["graca"]:
+                    nota["g"] = Fraction(-1)
+                    apojaturas.append(nota)
+                    if "start" in n["ligas"]:
+                        abertas[chave] = nota
+                elif "stop" in n["ligas"] and anterior is not None and anterior["g"] == 0:
+                    anterior["dur"] = ini + nota["dur"] - anterior["ini"]
+                    anterior["continuacoes"].append(ini)
+                    if "start" not in n["ligas"]:
+                        del abertas[chave]
+                else:
+                    principais.append(nota)
+                    if "start" in n["ligas"]:
+                        abertas[chave] = nota
+                    else:
+                        abertas.pop(chave, None)
+            inicio_compasso += md["avanco"]
     return principais, apojaturas
 
 

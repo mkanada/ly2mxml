@@ -30,6 +30,21 @@ class Resultado:
         return self.captura.midis[i] if i < len(self.captura.midis) else None
 
 
+def _gemea_so_midi(self, partitura):
+    """A partitura `so_midi` que vem logo depois e tem as mesmas pautas (a cópia
+    `\\unfoldRepeats` só para o MIDI), ou None."""
+    i = self.partituras.index(partitura)
+    if partitura.so_midi or i + 1 >= len(self.partituras):
+        return None
+    seguinte = self.partituras[i + 1]
+    if seguinte.so_midi and len(seguinte.pautas) == len(partitura.pautas):
+        return seguinte
+    return None
+
+
+Resultado.gemea_so_midi = _gemea_so_midi
+
+
 def nomes_de_saida(base: str, saida: Path | None, quantas: int) -> list[Path]:
     if saida is None:
         saida = Path(f"{base}.musicxml")
