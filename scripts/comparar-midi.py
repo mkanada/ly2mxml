@@ -24,38 +24,6 @@ sys.path.insert(0, str(RAIZ))
 from conversor import comparacao, lilypond, pipeline  # noqa: E402
 
 
-def comparar_gravada(base, resultado, g):
-    """Linhas de resumo e se bateu, para uma partitura gravada.
-
-    Compara com o MIDI do próprio `\\score` (as repetições valem uma vez, nos dois lados) e,
-    se logo depois vem uma partitura `so_midi` com as mesmas pautas (a cópia `\\unfoldRepeats`
-    que muitas peças trazem para o MIDI), também o MusicXML desdobrado contra o MIDI dela.
-    """
-    p = g.partitura.p
-    midi = resultado.midi_de(g.partitura)
-    nomes = [m.name for m in resultado.captura.midis]
-    linhas, resultados = [], []
-    if midi is None or not midi.exists():
-        return [f"{base} p{p}: sem MIDI; não comparado"], None
-    if nomes.count(midi.name) > 1:
-        return [f"{base} p{p}: MIDI '{midi.name}' repetido no log; não comparado"], None
-    principais, apojaturas = comparacao.notas_do_musicxml(g.arquivo)
-    r = comparacao.comparar_partitura(principais, apojaturas, comparacao.notas_do_midi(midi))
-    linhas += comparacao.formatar(base, p, r, g.partitura.so_midi)
-    resultados.append(r["ok"])
-
-    gemea = resultado.gemea_so_midi(g.partitura)
-    if gemea is not None:
-        midi2 = resultado.midi_de(gemea)
-        if midi2 is not None and midi2.exists() and nomes.count(midi2.name) == 1:
-            principais, apojaturas = comparacao.notas_do_musicxml(g.arquivo, expandir=True)
-            r2 = comparacao.comparar_partitura(principais, apojaturas,
-                                               comparacao.notas_do_midi(midi2))
-            linhas += comparacao.formatar(f"{base} (desdobrada)", gemea.p, r2, True)
-            resultados.append(r2["ok"])
-    return linhas, all(resultados)
-
-
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("arquivos", nargs="+", type=Path)
@@ -74,7 +42,7 @@ def main(argv=None):
                 status = max(status, 2)
                 continue
             for g in resultado.gravadas:
-                linhas, ok = comparar_gravada(arq.stem, resultado, g)
+                linhas, ok, _ = comparacao.comparar_gravada(arq.stem, resultado, g)
                 print("\n".join(linhas))
                 if ok is False:
                     status = max(status, 1)

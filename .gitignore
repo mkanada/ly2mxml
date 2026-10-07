@@ -8,3 +8,7 @@ ferramentas/
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
+
+# resultados do lote (passo 16); só o resumo é versionado, porque é o teste de regressão
+saida/*
+!saida/_resumo.csv

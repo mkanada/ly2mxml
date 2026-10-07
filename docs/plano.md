@@ -284,6 +284,15 @@ pauta, `StaffGroup` com chave; o music21 exporta como **um** `<part>` com `<stav
 - Meta: medir a taxa de sucesso no recorte e depois no Mutopia de piano inteiro (umas 500 peças).
   As peças que não compilam nem depois do `convert-ly` ficam listadas à parte.
 
+**Andamento (07/10/2026, passo 16):** `scripts/converter-todos.py` (+ `conversor/resumo.py`).
+`ProcessPoolExecutor`, uma linha de `saida/_resumo.csv` por partitura gravada (versionado: é o
+teste de regressão, com `saida/*` e `!saida/_resumo.csv` no `.gitignore`), `saida/_avisos.log`
+e a lista do que mudou desde a rodada anterior (todas as colunas menos `segundos`). O lote das
+31 peças leva ~26 s com 4 núcleos (meta: < 2 min). **Primeira rodada: 33 partituras de 31
+peças, 18 ok, 8 avisos (só `ligadura sem destino`, `afterGrace aproximada` e afins), 0
+`midi-difere`, 6 `ERRO-lilypond` e 1 `ERRO-convert`** (as sete peças do passo 02, que não
+compilam). Segunda rodada: `0 de 33 partituras mudaram`, ou seja, a saída é reprodutível.
+
 ### Fase 5 (opcional): notação
 - Dinâmica e hairpins, articulações (staccato, acento, fermata), ligaduras de expressão, ornamentos
   (trinado, mordente, arpejo), pedal, `\tempo` com metrônomo, textos (`^\markup`), `\ottava`,
