@@ -95,6 +95,41 @@ não compilam mesmo sem a captura (causa pré-existente, à parte como os
 as linhas `error:` na saída. Nenhum erro cita `captura.ly`. O original em
 `dados/` segue intacto (o script só escreve em `SAIDA_DIR` e no temporário).
 
+**Andamento (05/10/2026, passo 03):** engraver de `Voice` em `ly/captura.ly`
+(`captura-voz` + `emitir-nota/pausa/pausa-compasso/quialtera`, contadores por
+partitura zerados no `initialize` do `Score`, tabela `Staff → pauta` ainda
+vazia). `testes/ly/03-vozes.ly` cobre acorde, `<g b>2~ q8`, `<c~ e>2`,
+`<< {} \\ {} >>` (ids `"1"`/`"2"`), `\new Voice`, `\change Staff`,
+`\tuplet 3/2`, `R2.*2` (igual ao exemplo do contrato: `fig` 1, `escala` `"2"`,
+`dur` `"3/2"`), `r8`, `s4` (sem linha), `\grace`/`\acciaccatura`/`\appoggiatura`
+(`g` `"-1/8"`, `barra` só na cortada). Conferido à mão: 43 notas (29 na pauta
+de cima), `lig` true só nas 3 certas, quiáltera `3/2` com `null` no fim e
+`num`/`den` direto das propriedades invertidas (sem fallback).
+`bach-invention-01` dá 467 notas, como no protótipo. Decisões: `pauta` sai 0
+em tudo até o passo 04 preencher a tabela (o `\change Staff` só passa a
+aparecer lá); `barra` só aparece como `true` (contrato 01); `02-minimo.ly`
+agora traz também `voz` + `nota` (a voz implícita é capturada). Nas 31 peças,
+os mesmos 24/7 do passo 02, sem erro novo: nada cita `captura.ly`, e toda
+partitura capturada tem notas (só `diabeli`/`maple`, sem partitura, não têm).
+
+**Andamento (07/10/2026, passo 04):** `captura-pauta` (`pauta`, `clave`, `armadura`,
+`fim-pauta`, registro na tabela `Staff → pauta` já no `initialize`) e a parte de
+tempo de `captura-score` (`compasso`, `formula`, `barra`, `repeticao` e os
+ouvintes `volta`, `rep-inicio`, `rep-fim`). `testes/ly/04-pauta.ly` cobre
+`\partial`, `\key` g/d/c, `\time` 3/4→6/8, `\clef bass` e `treble_8`,
+`\repeat volta` com `\alternative`, `repeatCommands` manual e `\bar "|."`; o aviso
+de polimetria foi testado à parte. Achados da 2.26 (corrigidos no passo 01):
+`timeSignatureFraction` está deprecada (usar `timeSignature`); `measureLength` é
+racional, não `Moment`; **após `\partial` o `currentBarNumber` não incrementa**
+(pickup e 1º compasso cheio são ambos 1), então `compasso` sai também quando
+`measurePosition` cai ou volta a 0; a tônica de `\key g` vem na oitava −1;
+`repeatCommands` de `\repeat volta` traz o número (`["start-repeat",2]`,
+`["end-repeat",1]`). O exemplo do contrato (`01-contrato.eventos.jsonl`) agora é
+a saída real da captura. Nas 31 peças: os mesmos 24/7, nenhum erro cita
+`captura.ly`, nenhuma nota na pauta 0, `fur_Elise` tem repetições e casas,
+`SchumannOp15No07` tem 19 notas com pauta diferente da da voz, `bach-invention-01`
+segue com 467 notas.
+
 - `ly/captura.ly`: notas, pausas e acordes com momento, pauta e voz.
 - Resolver as pegadinhas da injeção:
   - partitura sem `\layout` (só `\midi`): os engravers não rodam. Forçar um `\layout` pelo

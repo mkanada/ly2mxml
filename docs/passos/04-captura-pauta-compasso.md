@@ -61,9 +61,10 @@ evento.
 
 Em `process-music`:
 
-- `compasso`: no primeiro passo de tempo e quando `currentBarNumber` muda. Leia `measureLength` e
-  `timing`.
-- `formula`: `timeSignatureFraction` (um par `(3 . 4)`) quando muda.
+- `compasso`: no primeiro passo de tempo, quando `currentBarNumber` muda e quando `measurePosition`
+  não avança (depois de uma anacruse o número continua 1; ver passo 01). Leia `measureLength`
+  (racional na 2.26, não `Moment`) e `timing`.
+- `formula`: `timeSignature` (um par `(3 . 4)`; a `timeSignatureFraction` está deprecada na 2.26 e avisa) quando muda.
 - `barra`: `whichBar` quando é string não vazia.
 - `repeticao`: `repeatCommands` quando não é `'()`. Cada comando é um símbolo
   (`start-repeat`, `end-repeat`) ou uma lista (`(volta "1.")`, `(volta #f)`). Um markup no lugar
@@ -89,7 +90,7 @@ o `compasso` sempre sai.
 
 - **Polimetria.** Quando o arquivo move o `Timing_translator` para o `Staff`, cada pauta tem sua
   própria fórmula. A captura lê no `Score` e perderia isso. Se `(ly:context-property ctx
-  'timeSignatureFraction)` no `Staff` diferir do `Score`, emitir `aviso`. Não tratar.
+  'timeSignature)` no `Staff` diferir do `Score`, emitir `aviso`. Não tratar.
 - `\bar ""` (barra invisível, usada para quebra de linha) é uma string vazia: não emitir.
 - `\key c \major` no meio da peça, depois de uma armadura com acidentes, emite
   `alteracoes: []`. O passo 09 precisa disso para escrever a armadura de naturais.

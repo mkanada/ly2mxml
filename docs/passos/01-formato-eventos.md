@@ -41,9 +41,28 @@ Linhas de voz trazem também `voz` (int) e `pauta` (int). As de pauta trazem `pa
 {"tipo":"cabecalho","formato":1,"lilypond":"2.26.0"}
 {"tipo":"partitura","p":1,"so_midi":false}
 {"tipo":"pauta","p":1,"pauta":1,"id":"up","contexto":"Staff","t":"0"}
-{"tipo":"voz","p":1,"voz":3,"id":"1","pauta":2,"t":"1/2"}
-{"tipo":"fim-pauta","p":1,"pauta":1,"t":"19/4"}
-{"tipo":"fim","p":1,"t":"19/4"}
+{"tipo":"voz","p":1,"voz":1,"id":"","pauta":1,"t":"0"}
+{"tipo":"pauta","p":1,"pauta":2,"id":"down","contexto":"Staff","t":"0"}
+{"tipo":"voz","p":1,"voz":2,"id":"","pauta":2,"t":"0"}
+{"tipo":"clave","p":1,"pauta":1,"t":"0","g":"0","c":1,"pos":"-1/4","glifo":"clefs.G","posicao":-2,"transp":0}
+{"tipo":"armadura","p":1,"pauta":1,"t":"0","g":"0","c":1,"pos":"-1/4","tonica":{"oitava":-1,"nota":4,"alt":"0"},"alteracoes":[[3,"1/2"]]}
+{"tipo":"clave","p":1,"pauta":2,"t":"0","g":"0","c":1,"pos":"-1/4","glifo":"clefs.F","posicao":2,"transp":0}
+{"tipo":"armadura","p":1,"pauta":2,"t":"0","g":"0","c":1,"pos":"-1/4","tonica":{"oitava":0,"nota":0,"alt":"0"},"alteracoes":[]}
+{"tipo":"compasso","p":1,"t":"0","g":"0","c":1,"pos":"-1/4","tam":"3/4","medindo":true}
+{"tipo":"formula","p":1,"t":"0","g":"0","c":1,"pos":"-1/4","num":3,"den":4}
+{"tipo":"nota","p":1,"voz":1,"pauta":1,"t":"0","g":"0","c":1,"pos":"-1/4","altura":{"oitava":1,"nota":1,"alt":"0"},"midi":74,"fig":2,"pontos":0,"escala":"1","dur":"1/4","lig":false}
+{"tipo":"nota","p":1,"voz":2,"pauta":2,"t":"0","g":"0","c":1,"pos":"-1/4","altura":{"oitava":-1,"nota":4,"alt":"0"},"midi":55,"fig":2,"pontos":0,"escala":"1","dur":"1/4","lig":false}
+{"tipo":"compasso","p":1,"t":"1/4","g":"0","c":1,"pos":"0","tam":"3/4","medindo":true}
+{"tipo":"nota","p":1,"voz":1,"pauta":1,"t":"1/4","g":"0","c":1,"pos":"0","altura":{"oitava":0,"nota":4,"alt":"0"},"midi":67,"fig":1,"pontos":0,"escala":"1","dur":"1/2","lig":true}
+{"tipo":"nota","p":1,"voz":1,"pauta":1,"t":"1/4","g":"0","c":1,"pos":"0","altura":{"oitava":0,"nota":6,"alt":"0"},"midi":71,"fig":1,"pontos":0,"escala":"1","dur":"1/2","lig":true}
+{"tipo":"nota","p":1,"voz":2,"pauta":2,"t":"1/4","g":"0","c":1,"pos":"0","altura":{"oitava":-2,"nota":4,"alt":"0"},"midi":43,"fig":1,"pontos":1,"escala":"1","dur":"3/4","lig":false}
+{"tipo":"nota","p":1,"voz":1,"pauta":1,"t":"3/4","g":"0","c":1,"pos":"1/2","altura":{"oitava":0,"nota":4,"alt":"0"},"midi":67,"fig":3,"pontos":0,"escala":"1","dur":"1/8","lig":false}
+{"tipo":"nota","p":1,"voz":1,"pauta":1,"t":"3/4","g":"0","c":1,"pos":"1/2","altura":{"oitava":0,"nota":6,"alt":"0"},"midi":71,"fig":3,"pontos":0,"escala":"1","dur":"1/8","lig":false}
+{"tipo":"pausa","p":1,"voz":1,"pauta":1,"t":"7/8","g":"0","c":1,"pos":"5/8","fig":3,"pontos":0,"escala":"1","dur":"1/8"}
+{"tipo":"compasso","p":1,"t":"1","g":"0","c":2,"pos":"0","tam":"3/4","medindo":true}
+{"tipo":"fim-pauta","p":1,"pauta":1,"t":"1"}
+{"tipo":"fim-pauta","p":1,"pauta":2,"t":"1"}
+{"tipo":"fim","p":1,"t":"1"}
 ```
 
 - `cabecalho`: primeira linha do arquivo, uma vez só.
@@ -115,7 +134,8 @@ saem sempre.
 
 - `clave`: das propriedades `clefGlyph` (`"clefs.G"`, `"clefs.F"`, `"clefs.C"`, `"clefs.percussion"`),
   `clefPosition` e `clefTransposition` (`-7` em `treble_8`, ausente = 0).
-- `armadura`: `tonic` e `keyAlterations`. `alteracoes` é a lista `[nota, alt]`. Se o LilyPond
+- `armadura`: `tonic` e `keyAlterations`. A oitava da `tonica` é a da nota escrita (`\key g` dá
+  `oitava: -1`); só a `nota` e a `alt` importam. `alteracoes` é a lista `[nota, alt]`. Se o LilyPond
   trouxer uma alteração presa a uma oitava (`((oitava . nota) . alt)`), ela vai como
   `[nota, alt, oitava]`, e o passo 09 avisa.
 
@@ -131,10 +151,13 @@ Emitidos pelo engraver de `Score`.
 {"tipo":"volta","p":1,"t":"3/2","g":"0","c":3,"pos":"0","dir":"inicio","numeros":[1,2]}
 ```
 
-- `compasso`: no primeiro passo de tempo e sempre que `currentBarNumber` muda. `tam` é
+- `compasso`: no primeiro passo de tempo, sempre que `currentBarNumber` muda **e** quando
+  `measurePosition` não avança (volta a 0 ou cai). Só o número não basta: depois de uma anacruse
+  (`\partial`) o `currentBarNumber` continua 1 no primeiro compasso cheio (verificado na 2.26), e
+  o `c` dos eventos também. `tam` é
   `measureLength` e `medindo` é a propriedade `timing` (`false` dentro de `\cadenzaOn`). Na
   anacruse, o primeiro `compasso` tem `pos` negativo.
-- `formula`: `timeSignatureFraction`, quando muda.
+- `formula`: propriedade `timeSignature` (a `timeSignatureFraction` está deprecada na 2.26), quando muda.
 - `barra`: `whichBar` quando é uma string não vazia. O LilyPond só preenche `whichBar` nas barras
   explícitas (`\bar "|."`) e nas de repetição.
 - `repeticao`: `repeatCommands` quando não é vazio, convertido para listas de strings e números
