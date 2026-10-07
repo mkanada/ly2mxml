@@ -389,14 +389,16 @@ def _montar_pauta(m, ps, parte, n_pauta, base_voz, acordes, numeros, camadas, me
             obj.numberSuffix = md.sufixo
 
     # Atributos: claves, armaduras e fórmulas.
-    for c in ps.claves.get(n_pauta, []):
+    # Duas claves (ou armaduras) no mesmo instante: vale a última. Uma peça que começa por
+    # apojatura recebe a clave padrão em g < 0, antes da `\\clef bass` do próprio instante.
+    for c in _ultimas_por_instante(ps.claves.get(n_pauta, [])):
         obj = _clave(c)
         if obj is None:
             m.avisar(f"clave {c.glifo} posição {c.posicao} fora da tabela: usada a de sol")
             obj = clef.TrebleClef()
         md = compasso_de(c.t)
         _inserir_atributo(m, por_medida, medidas, md, c.t, obj, "clave")
-    for a in ps.armaduras.get(n_pauta, []):
+    for a in _ultimas_por_instante(ps.armaduras.get(n_pauta, [])):
         n = _fifths(a)
         if n is None:
             n = _fifths_mais_proximo(a)
@@ -446,6 +448,14 @@ def _montar_pauta(m, ps, parte, n_pauta, base_voz, acordes, numeros, camadas, me
             _preencher_voz(m, v, md, [], qi)
             obj.insert(0, v)
         parte.insert(md.t0 * QUATRO, obj)
+
+
+def _ultimas_por_instante(linhas):
+    """Das linhas de clave/armadura, a última de cada `t` (ordenadas por `t` e `g`)."""
+    por_t = {}
+    for x in sorted(linhas, key=lambda x: (x.t, x.g)):
+        por_t[x.t] = x
+    return list(por_t.values())
 
 
 def _repeticoes(m, ps, parte, por_medida, medidas, compasso_de):
@@ -501,6 +511,8 @@ def _repeticoes(m, ps, parte, por_medida, medidas, compasso_de):
     por_t0 = {md.t0: i for i, md in enumerate(medidas)}
     por_t1 = {md.t1: i for i, md in enumerate(medidas)}
     for t in inicios:
+        if t == medidas[0].t0:
+            continue      # a repetição que começa na peça não leva barra (o LilyPond não desenha)
         i = por_t0.get(t)
         if i is None:
             i = medidas.index(compasso_de(t))

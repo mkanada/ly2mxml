@@ -130,7 +130,9 @@ def test_repeticoes_14(tmp_path):
     barras = [(c.get("number"), b.get("location"), b.find("repeat").get("direction"),
                b.find("repeat").get("times")) for c in compassos for b in c.findall("barline")
               if b.find("repeat") is not None]
-    assert ("1", "left", "forward", None) in barras or ("1", None, "forward", None) in barras
+    # A repetição que começa na primeira nota da peça não leva barra (o LilyPond não a desenha).
+    assert not any(n == "1" and d == "forward" for n, _, d, _ in barras)
+    assert any(n == "2" and d == "forward" for n, _, d, _ in barras)
     assert any(d == "backward" and t == "3" for _, _, d, t in barras)
     casas = [(e.get("number"), e.get("type")) for e in raiz_.iter("ending")]
     assert ("1,2", "start") in casas and ("1,2", "stop") in casas
@@ -168,3 +170,11 @@ def test_14_15_batem_com_o_midi(nome):
     r = subprocess.run([sys.executable, str(RAIZ / "scripts" / "comparar-midi.py"),
                         str(TESTES_LY / f"{nome}.ly")], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+@pytest.mark.lilypond
+def test_clave_de_fa_depois_de_apojatura_no_inicio(tmp_path):
+    # A peça começa por apojatura: a clave padrão chega em g < 0 e a `\clef bass` no mesmo `t`.
+    _, raiz_ = converter(tmp_path, "13-apojaturas")
+    claves = {c.get("number"): c.findtext("sign") for c in raiz_.iter("clef")}
+    assert claves == {"1": "G", "2": "F"}

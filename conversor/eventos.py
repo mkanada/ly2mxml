@@ -81,6 +81,7 @@ class Voz:
 class Clave:
     pauta: int
     t: Fraction
+    g: Fraction
     pos: Fraction
     glifo: str
     posicao: int
@@ -91,6 +92,7 @@ class Clave:
 class Armadura:
     pauta: int
     t: Fraction
+    g: Fraction
     pos: Fraction
     tonica: Altura
     alteracoes: list[tuple]    # (nota, alt) ou (nota, alt, oitava)
@@ -225,12 +227,13 @@ def ler_linhas(linhas) -> list[Partitura]:
                 Quialtera(_fr(e["t"]), e["dir"], e["num"], e["den"]))
         elif tipo == "clave":
             da(p).claves.setdefault(e["pauta"], []).append(
-                Clave(e["pauta"], _fr(e["t"]), _fr(e["pos"]), e["glifo"], e["posicao"],
+                Clave(e["pauta"], _fr(e["t"]), _fr(e["g"]), _fr(e["pos"]), e["glifo"], e["posicao"],
                       e["transp"]))
         elif tipo == "armadura":
             alts = [(a[0], _fr(a[1])) + tuple(a[2:]) for a in e["alteracoes"]]
             da(p).armaduras.setdefault(e["pauta"], []).append(
-                Armadura(e["pauta"], _fr(e["t"]), _fr(e["pos"]), _altura(e["tonica"], 0), alts))
+                Armadura(e["pauta"], _fr(e["t"]), _fr(e["g"]), _fr(e["pos"]), _altura(e["tonica"], 0),
+                         alts))
         elif tipo == "compasso":
             da(p).compassos.append(
                 Compasso(e["c"], _fr(e["t"]), _fr(e["pos"]), _fr(e["tam"]), e["medindo"]))

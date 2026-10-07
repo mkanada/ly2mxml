@@ -99,3 +99,45 @@ def capturar(arq: Path, tmp: Path, sem_midi: bool = False, timeout: int | None =
         raise ErroLilypond(f"lilypond não gerou eventos para {arq.name}:\n"
                            f"{linhas_de_erro(r.stderr)}", captura)
     return captura
+
+
+def renderizar_svg(arq: Path, destino: Path, base: str | None = None) -> list[Path]:
+    """Compila o `.ly` (já atualizado pelo `convert-ly`) em SVG, uma por página.
+
+    Sem a captura: é o desenho do próprio LilyPond, para comparar com o do MusicXML (passo 17).
+    Copia as páginas, em ordem, para `destino/BASE-ly-N.svg` e devolve os caminhos. O
+    `-dbackend=svg` escreve `lily-1.svg`, `lily-2.svg`... (ou `lily.svg` se for uma só) e avisa
+    `ignoring unsupported formats (pdf)`, que é inofensivo.
+    """
+    import re
+    import shutil
+    import tempfile
+
+    arq = Path(arq).resolve()
+    base = base or arq.stem
+    destino = Path(destino)
+    destino.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        convertido = tmp / f"{base}-2.26.ly"
+        r = subprocess.run([str(BIN / "convert-ly"), str(arq)], capture_output=True, text=True,
+                           errors="replace")
+        if r.returncode != 0:
+            raise ErroConvertLy(f"convert-ly falhou para {arq.name}:\n{r.stderr.strip()}")
+        convertido.write_text(r.stdout, encoding="utf-8")
+        r = subprocess.run([str(BIN / "lilypond"), "-dbackend=svg", "-I", str(arq.parent),
+                            "-o", str(tmp / "lily"), str(convertido)],
+                           capture_output=True, text=True, errors="replace")
+        numeradas = sorted((int(m.group(1)), p) for p in tmp.glob("lily-*.svg")
+                           if (m := re.fullmatch(r"lily-(\d+)\.svg", p.name)))
+        paginas = [p for _, p in numeradas] or ([tmp / "lily.svg"] if (tmp / "lily.svg").exists()
+                                                else [])
+        if not paginas:
+            raise ErroLilypond(f"lilypond não gerou SVG para {arq.name}:\n"
+                               f"{linhas_de_erro(r.stderr)}")
+        copias = []
+        for n, p in enumerate(paginas, 1):
+            copia = destino / f"{base}-ly-{n}.svg"
+            shutil.copy2(p, copia)
+            copias.append(copia)
+    return copias

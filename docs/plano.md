@@ -293,6 +293,24 @@ peças, 18 ok, 8 avisos (só `ligadura sem destino`, `afterGrace aproximada` e a
 `midi-difere`, 6 `ERRO-lilypond` e 1 `ERRO-convert`** (as sete peças do passo 02, que não
 compilam). Segunda rodada: `0 de 33 partituras mudaram`, ou seja, a saída é reprodutível.
 
+**Andamento (07/10/2026, passo 17):** `scripts/conferir.py PECA [-p N] [-c A-B] [-o DIR]`
+grava `saida/conferir/PECA.html` com o SVG do LilyPond (`-dbackend=svg`, sem a captura, cópia
+pelo `convert-ly`) à esquerda e o do Verovio (`loadFile` do MusicXML gerado, `select
+measureRange` para `-c`) à direita. Funciona com uma e com várias partituras (`sonatina-1`). Foi
+usado em `bach-invention-01`, `Chop-28-1`, `LVB_Sonate_02no1_1`, `fur_Elise_WoO59` e nos testes
+`12` e `13`, e achou **dois problemas reais**, nenhum visível no MIDI:
+
+1. **Clave de fá perdida quando a peça começa por apojatura** (`13-apojaturas.ly`): a pauta
+   emite a clave padrão (sol) em `g = -1/8`, antes da `\clef bass` do mesmo `t`, e a montagem
+   usava a primeira. Agora vale a última de cada instante (`g` entrou nas linhas `clave` e
+   `armadura` lidas). O MIDI não tem clave, então a comparação nunca acharia isso.
+2. **Barra de repetição no início da peça** (`fur_Elise_WoO59`): o `start-repeat` em `t = 0`
+   saía como `|:` no primeiro compasso, que o LilyPond não desenha. Agora é omitido (uma
+   repetição que começa na primeira nota não precisa da barra para tocar certo).
+
+Como ver a página sem abrir o navegador (snap do Chromium só escreve no `$HOME`):
+`chromium --headless --screenshot=$HOME/x.png --window-size=1500,1000 file://.../PECA.html`.
+
 ### Fase 5 (opcional): notação
 - Dinâmica e hairpins, articulações (staccato, acento, fermata), ligaduras de expressão, ornamentos
   (trinado, mordente, arpejo), pedal, `\tempo` com metrônomo, textos (`^\markup`), `\ottava`,
