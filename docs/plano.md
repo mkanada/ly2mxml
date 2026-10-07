@@ -170,6 +170,16 @@ repetido nos arquivos com `\book` + `\score` no topo: o script avisa e não os c
 - Critério para avançar: o JSON de 5 peças simples bate com o MIDI do LilyPond.
 
 ### Fase 2: MusicXML básico
+
+**Andamento (07/10/2026, passo 07):** `conversor/eventos.py` (`ler`, `escolher`, dataclasses
+com `slots`). Acordes agrupados por `(voz, t, g)`; figuras diferentes no mesmo grupo se
+separam com aviso. Ligaduras: o destino é o acorde da mesma voz que começa em `fim` com a
+mesma altura; **segue por cima de outras notas contíguas da voz** (arpejo ligado ao acorde
+final, como o passo 06 mostrou) e para em pausa ou buraco; a apojatura procura a principal
+no mesmo `t`. Pauta temporária = começa depois de 0 ou termina antes do `fim`. Nas 31 peças
+a leitura roda sem exceção; os únicos avisos são `ligadura sem destino` (31 no total).
+`pytest` foi acrescentado ao `requirements.txt` no passo 06.
+
 - `ly2mxml.py ARQ.ly [-o SAIDA.musicxml]` faz tudo de ponta a ponta.
 - Compassos, fórmula de compasso, armadura, claves (inclusive a mudança no meio da pauta), anacruse
   (`\partial`), notas, acordes, pausas, `R1*4`, ligaduras de prolongamento e vozes (`<< {} \\ {} >>`
