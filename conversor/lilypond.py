@@ -9,6 +9,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import compat
+
 RAIZ = Path(__file__).resolve().parent.parent
 BIN = RAIZ / "ferramentas" / "lilypond" / "bin"
 CAPTURA = RAIZ / "ly" / "captura.ly"
@@ -37,6 +39,7 @@ class Captura:
     log: str                      # stderr do lilypond
     versao_original: str | None   # do \version do arquivo, antes do convert-ly
     base: str = ""
+    compat: list = None           # regras de conversor/compat.py que dispararam
 
 
 def versao_do_arquivo(arq: Path) -> str | None:
@@ -53,6 +56,24 @@ def midis_do_log(log: str) -> list[str]:
 def linhas_de_erro(log: str) -> str:
     erros = [l for l in log.splitlines() if "error:" in l.lower()]
     return "\n".join(erros) if erros else log.strip()[-2000:]
+
+
+def _atualizar(arq: Path, tmp: Path, base: str):
+    """Escreve em `tmp` a cópia de `arq` na sintaxe 2.26 (`convert-ly` e `compat`).
+
+    Devolve `(caminho da cópia, regras de compat aplicadas)`.
+    """
+    texto, antes = compat.antes_do_convert(arq.read_text(encoding="utf-8", errors="replace"))
+    original = tmp / f"{base}-original.ly"
+    original.write_text(texto, encoding="utf-8")
+    r = subprocess.run([str(BIN / "convert-ly"), str(original)], capture_output=True, text=True,
+                       errors="replace")
+    if r.returncode != 0:
+        raise ErroConvertLy(f"convert-ly falhou para {arq.name}:\n{r.stderr.strip()}")
+    texto, depois = compat.depois_do_convert(r.stdout)
+    convertido = tmp / f"{base}-2.26.ly"
+    convertido.write_text(texto, encoding="utf-8")
+    return convertido, antes + depois
 
 
 def capturar(arq: Path, tmp: Path, sem_midi: bool = False, timeout: int | None = None,
@@ -72,12 +93,7 @@ def capturar(arq: Path, tmp: Path, sem_midi: bool = False, timeout: int | None =
     base = arq.stem
     versao = versao_do_arquivo(arq)
 
-    convertido = tmp / f"{base}-2.26.ly"
-    r = subprocess.run([str(convert), str(arq)], capture_output=True, text=True,
-                       errors="replace")
-    if r.returncode != 0:
-        raise ErroConvertLy(f"convert-ly falhou para {arq.name}:\n{r.stderr.strip()}")
-    convertido.write_text(r.stdout, encoding="utf-8")
+    convertido, aplicadas = _atualizar(arq, tmp, base)
 
     # A captura antes do arquivo do usuário: o \layout com os engravers precisa existir antes.
     envelope = tmp / "envelope.ly"
@@ -91,7 +107,7 @@ def capturar(arq: Path, tmp: Path, sem_midi: bool = False, timeout: int | None =
          str(envelope)],
         capture_output=True, text=True, errors="replace", env=env, timeout=timeout)
     captura = Captura(eventos, [tmp / n for n in midis_do_log(r.stderr)], r.stderr, versao,
-                      base)
+                      base, aplicadas)
     if r.returncode != 0 and not forcar:
         raise ErroLilypond(f"lilypond falhou para {arq.name}:\n{linhas_de_erro(r.stderr)}",
                            captura)
@@ -119,12 +135,7 @@ def renderizar_svg(arq: Path, destino: Path, base: str | None = None) -> list[Pa
     destino.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
-        convertido = tmp / f"{base}-2.26.ly"
-        r = subprocess.run([str(BIN / "convert-ly"), str(arq)], capture_output=True, text=True,
-                           errors="replace")
-        if r.returncode != 0:
-            raise ErroConvertLy(f"convert-ly falhou para {arq.name}:\n{r.stderr.strip()}")
-        convertido.write_text(r.stdout, encoding="utf-8")
+        convertido, _ = _atualizar(arq, tmp, base)
         r = subprocess.run([str(BIN / "lilypond"), "-dbackend=svg", "-I", str(arq.parent),
                             "-o", str(tmp / "lily"), str(convertido)],
                            capture_output=True, text=True, errors="replace")

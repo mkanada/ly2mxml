@@ -10,7 +10,8 @@ partitura gravada com o MIDI correspondente (pela ordem do log do LilyPond). O M
 direto do XML, sem o music21. Repetições não são desdobradas no MusicXML; o MIDI do mesmo score
 também não é.
 
-Status: 0 se todas batem, 1 se alguma não bate, 2 se não deu para converter.
+Status: 0 se todas batem, 1 se alguma não bate, 2 se não deu para converter. A comparação com a
+partitura `so_midi` (cópia só para o MIDI) é informativa e não muda o status.
 """
 import argparse
 import sys
@@ -41,10 +42,9 @@ def main(argv=None):
                 print(f"{arq.stem}: {str(erro).splitlines()[0]}", file=sys.stderr)
                 status = max(status, 2)
                 continue
-            for g in resultado.gravadas:
-                linhas, ok, _ = comparacao.comparar_gravada(arq.stem, resultado, g)
-                print("\n".join(linhas))
-                if ok is False:
+            for saida in comparacao.comparar_resultado(arq.stem, resultado):
+                print("\n".join(saida["linhas"]))
+                if saida["ok"] is False:
                     status = max(status, 1)
     return status
 

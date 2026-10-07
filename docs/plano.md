@@ -85,8 +85,7 @@ linhas esperadas e o LVB (2.10.3) sai com status 0 em ~2,5 s. Descobertas:
 `-dno-print-pages` desliga o PDF (o `-dbackend=null` não existe); no bash, um
 `if ! cmd` zera o `$?` dentro do `then`, então o script testa o exit do
 `lilypond` sem `!` (senão a falha passava batida). Das 31 peças, 24 passam e 7
-não compilam mesmo sem a captura (causa pré-existente, à parte como os
-`musicxml_special/` do Hymn_Grabber): `Chop-28-2` (o `convert-ly` não converte
+não compilam mesmo sem a captura (causa pré-existente; resolvida depois por `conversor/compat.py`, ver adiante): `Chop-28-2` (o `convert-ly` não converte
 `#(ly:set-option 'old-relative)`, status 2); `5.Inquietude`
 (`override-auto-beam-setting`), `chopin_nocturne_op9_n2` e
 `SchubertF-D899-2-Impromptu` (`set-octavation`), `diabeli.op163.s1-1` e
@@ -310,6 +309,29 @@ usado em `bach-invention-01`, `Chop-28-1`, `LVB_Sonate_02no1_1`, `fur_Elise_WoO5
 
 Como ver a página sem abrir o navegador (snap do Chromium só escreve no `$HOME`):
 `chromium --headless --screenshot=$HOME/x.png --window-size=1500,1000 file://.../PECA.html`.
+
+**Andamento (07/10/2026, compatibilidade e as sete peças que não compilavam):**
+`conversor/compat.py` corrige o que o `convert-ly` deixa passar, antes (`#(ly:set-option
+'old-relative)` **comentado**, que o `convert-ly` lê mesmo assim e aborta) e depois dele
+(`#(set-octavation N)` → `\ottava #N`; `#(override-auto-beam-setting ...)` removido;
+`\applyMusic #unfold-repeats` → `\unfoldRepeats`; marcas de oitava depois da duração `f8'` →
+`f'8`). As regras preservam as linhas e viram `aviso: compatibilidade com sintaxe antiga: ...`.
+Resultado: **as 31 peças convertem** (`Chop-28-2`, `25EF-01`, `5.Inquietude`,
+`chopin_nocturne_op9_n2`, `diabeli`, `maple` e `SchubertF-D899-2-Impromptu` incluídas), todas
+batem com o MIDI do próprio `\score` e o lote dá 24 `ok` e 10 `avisos` em 34 partituras. Outras
+descobertas:
+
+- *Repetição ou casa que começa/termina no meio do compasso* (`5.Inquietude`): o compasso é
+  partido ali (mesmo `c`, `implicit`), em vez de mover a barra para o fim do compasso, o que
+  fazia a repetição tocar notas a mais.
+- *A partitura `so_midi` nem sempre é a gêmea desdobrada.* Em `diabeli` ela é o dueto inteiro
+  (primo + secondo `\unfoldRepeats`), em `SchubertF-D899-2-Impromptu` é outro arranjo (sem a
+  anacruse), em `5.Inquietude` nem desdobra. `comparar_resultado` compara a `so_midi` com as
+  gravadas anteriores **juntas**, desdobradas ou não (o que bater), e só como informação
+  (coluna `gemea` do resumo: `ok`/`difere`); o que decide o `status` é o MIDI do próprio
+  `\score`. `maple` difere por uma ligadura que cruza a volta da repetição (na versão
+  desdobrada o MIDI a funde; no MusicXML ela vai para a nota depois da repetição);
+  `diabeli`, por um tremolo (o MIDI toca as notas repetidas; a captura avisa).
 
 ### Fase 5 (opcional): notação
 - Dinâmica e hairpins, articulações (staccato, acento, fermata), ligaduras de expressão, ornamentos

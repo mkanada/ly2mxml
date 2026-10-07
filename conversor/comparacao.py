@@ -169,6 +169,7 @@ def comparar_partitura(principais, apojaturas, midi):
     # funde a ligadura, por exemplo sob um arpejo): a continuação aparece só no MIDI.
     continuacoes = [(ticks(c), n["midi"]) for n in principais for c in n["continuacoes"]]
     nao_fundidas = 0
+    tremolos = 0
     erros_midi = []
     for ini, altura in so_midi:
         if perto(continuacoes, ini, altura):
@@ -180,6 +181,11 @@ def comparar_partitura(principais, apojaturas, midi):
                 if ticks(n["ini"]) - TOLERANCIA_TICKS <= ini
                 <= ticks(n["ini"] + n["dur"]) + TOLERANCIA_TICKS):
             unissonos += 1
+        elif any(n["midi"] == altura and ticks(n["ini"]) < ini < ticks(n["ini"] + n["dur"])
+                 for n, _ in pares):
+            # O MIDI repete a mesma altura dentro de uma nota longa: tremolo, que a montagem
+            # escreve como nota simples (a captura avisa).
+            tremolos += 1
         else:
             erros_midi.append((ini, altura))
 
@@ -236,6 +242,7 @@ def comparar_partitura(principais, apojaturas, midi):
         "apoj_total": len(apojaturas),
         "unissonos": unissonos,
         "nao_fundidas": nao_fundidas,
+        "tremolos": tremolos,
         "apoj_ligadas": len(ligadas),
         "so_json": len(erros_json),
         "so_midi": len(erros_midi),
@@ -408,6 +415,8 @@ def formatar(base, p, r, so_midi=False):
         extras.append(f"ligaduras nao fundidas no MIDI {r['nao_fundidas']}")
     if r["apoj_ligadas"]:
         extras.append(f"apojaturas ligadas {r['apoj_ligadas']}")
+    if r["tremolos"]:
+        extras.append(f"repetições de tremolo no MIDI {r['tremolos']}")
     linhas = [f"{base} p{p}{' so_midi' if so_midi else ''}: notas {r['notas_ok']}/{r['notas_json']}"
               f"  duracoes {r['duracoes_ok']}/{r['duracoes_total']}"
               f"  apojaturas {r['apoj_ok']}/{r['apoj_total']}"
@@ -421,33 +430,71 @@ def formatar(base, p, r, so_midi=False):
 
 
 def comparar_gravada(base, resultado, g):
-    """Linhas de resumo, se bateu (None se não deu para comparar) e o resumo da comparação
-    principal (o dicionário de `comparar_partitura`, ou None), para uma partitura gravada.
-
-    Compara com o MIDI do próprio `\\score` (as repetições valem uma vez, nos dois lados) e,
-    se logo depois vem uma partitura `so_midi` com as mesmas pautas (a cópia `\\unfoldRepeats`
-    que muitas peças trazem para o MIDI), também o MusicXML desdobrado contra o MIDI dela.
-    """
+    """Compara uma partitura gravada com o MIDI do próprio `\\score` (as repetições valem uma vez,
+    nos dois lados). Devolve `(linhas de resumo, bateu?, resumo)`: `bateu` é None se não deu para
+    comparar; `resumo` é o dicionário de `comparar_partitura` (ou None)."""
     p = g.partitura.p
     midi = resultado.midi_de(g.partitura)
     nomes = [m.name for m in resultado.captura.midis]
-    linhas, resultados = [], []
     if midi is None or not midi.exists():
         return [f"{base} p{p}: sem MIDI; não comparado"], None, None
     if nomes.count(midi.name) > 1:
         return [f"{base} p{p}: MIDI '{midi.name}' repetido no log; não comparado"], None, None
     principais, apojaturas = notas_do_musicxml(g.arquivo)
     r = comparar_partitura(principais, apojaturas, notas_do_midi(midi))
-    linhas += formatar(base, p, r, g.partitura.so_midi)
-    resultados.append(r["ok"])
+    return formatar(base, p, r, g.partitura.so_midi), r["ok"], r
 
-    gemea = resultado.gemea_so_midi(g.partitura)
-    if gemea is not None:
-        midi2 = resultado.midi_de(gemea)
-        if midi2 is not None and midi2.exists() and nomes.count(midi2.name) == 1:
-            principais, apojaturas = notas_do_musicxml(g.arquivo, expandir=True)
-            r2 = comparar_partitura(principais, apojaturas,
-                                               notas_do_midi(midi2))
-            linhas += formatar(f"{base} (desdobrada)", gemea.p, r2, True)
-            resultados.append(r2["ok"])
-    return linhas, all(resultados), r
+
+def comparar_resultado(base, resultado):
+    """Compara todas as partituras gravadas.
+
+    Devolve, na ordem de `resultado.gravadas`, dicionários com `linhas` (o resumo impresso),
+    `ok` (bateu com o MIDI do próprio `\\score`; None se não deu para comparar), `resumo` (o de
+    `comparar_partitura`) e `gemea` (True/False/None, abaixo).
+
+    A partitura `so_midi` (a cópia só para o MIDI, quase sempre com `\\unfoldRepeats`) é
+    comparada com as gravadas que vêm logo antes dela e têm as mesmas pautas, juntas (num dueto,
+    o primo e o secondo), com as repetições desdobradas ou não, o que bater. Isso é só
+    informação (`gemea`), e não entra em `ok`: o `\\score` só de MIDI pode ser outro arranjo
+    (sem a anacruse, por exemplo, em `SchubertF-D899-2-Impromptu`) e nem por isso a conversão
+    está errada.
+    """
+    saidas = []
+    for g in resultado.gravadas:
+        linhas, ok, r = comparar_gravada(base, resultado, g)
+        saidas.append({"linhas": list(linhas), "ok": ok, "resumo": r, "gemea": None})
+    por_gravada = {id(g): s for g, s in zip(resultado.gravadas, saidas)}
+    partituras = resultado.partituras
+    for i, so in enumerate(partituras):
+        if not so.so_midi:
+            continue
+        irmas = []
+        for outra in reversed(partituras[:i]):
+            if outra.so_midi or len(outra.pautas) != len(so.pautas):
+                break
+            irmas.append(outra)
+        gravadas = [g for g in resultado.gravadas if g.partitura in irmas]
+        midi = resultado.midi_de(so)
+        nomes = [m.name for m in resultado.captura.midis]
+        if not gravadas or midi is None or not midi.exists() or nomes.count(midi.name) != 1:
+            continue
+        melhor = None
+        for expandir in (True, False):
+            principais, apojaturas = [], []
+            for g in gravadas:
+                pr, ap = notas_do_musicxml(g.arquivo, expandir=expandir)
+                principais += pr
+                apojaturas += ap
+            r = comparar_partitura(principais, apojaturas, notas_do_midi(midi))
+            if melhor is None or (r["ok"] and not melhor[1]["ok"]):
+                melhor = (expandir, r)
+            if r["ok"]:
+                break
+        expandir, r = melhor
+        rotulo = f"{base} ({'desdobrada' if expandir else 'sem desdobrar'}; informativo)"
+        ultima = max(gravadas, key=lambda g: resultado.partituras.index(g.partitura))
+        por_gravada[id(ultima)]["linhas"] += formatar(rotulo, so.p, r, True)
+        for g in gravadas:
+            s = por_gravada[id(g)]
+            s["gemea"] = r["ok"] if s["gemea"] is None else (s["gemea"] and r["ok"])
+    return saidas

@@ -26,7 +26,7 @@ sys.path.insert(0, str(RAIZ))
 
 COLUNAS = ["peca", "p", "versao", "status", "segundos", "compassos", "pautas", "vozes", "notas",
            "pausas", "acordes", "ligaduras", "quialteras", "apojaturas", "repeticoes", "casas",
-           "formula", "armadura", "midi", "avisos", "hash"]
+           "formula", "armadura", "midi", "gemea", "avisos", "hash"]
 TIMEOUT = 120
 
 
@@ -65,8 +65,10 @@ def converter(ly: Path, saida: Path):
                         f"({traceback.format_exc().splitlines()[-3].strip()})")
 
         linhas, avisos = [], {}
+        comparadas = comparacao.comparar_resultado(base, r)
         for n, g in enumerate(r.gravadas, 1):
-            lin, ok, comp = comparacao.comparar_gravada(base, r, g)
+            comp, ok, gemea = (comparadas[n - 1][k] for k in ("resumo", "ok", "gemea"))
+            lin = comparadas[n - 1]["linhas"]
             texto_avisos = [a for a in g.avisos]
             if len(r.gravadas) > 1:
                 # O nome do arquivo já foi dado pelo pipeline (BASE-N); o `p` da linha é o N.
@@ -86,6 +88,7 @@ def converter(ly: Path, saida: Path):
                 texto_avisos = texto_avisos + [l.strip() for l in lin[1:6]]
             linha = {"peca": base, "p": n, "versao": versao, "status": status,
                      "segundos": f"{time.time() - ini:.1f}", "midi": midi,
+                     "gemea": {True: "ok", False: "difere", None: ""}[gemea],
                      "avisos": len(texto_avisos), **dados}
             linhas.append(linha)
             avisos[n] = texto_avisos

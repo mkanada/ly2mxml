@@ -83,16 +83,26 @@ def _compassos(m: Montagem):
         t1 = brutos[i + 1].t if i + 1 < len(brutos) else ps.fim
         medidas.append(MedidaCompasso(c.c, c.t, t1, c.tam, c.pos, c.medindo))
 
-    # Cadenza (e compasso longo): o LilyPond não abre compasso na `\bar` dentro dela. O trecho
-    # depois da barra vira outro compasso, com o mesmo número.
+    # Compasso partido: (1) na cadenza (e em compasso longo) o LilyPond não abre compasso na
+    # `\\bar`; o trecho depois da barra vira outro compasso, com o mesmo número. (2) Uma
+    # repetição ou uma casa que começa ou termina no meio do compasso (`5.Inquietude`): o
+    # MusicXML só tem repetição na barra, então o compasso é partido ali.
     barras = sorted({b.t for b in ps.barras if b.glifo not in ("", "|:", ":|:")})
+    cortes_rep = set()
+    for r in ps.repeticoes:
+        if r.tipo in ("rep-inicio", "rep-fim", "volta") or (
+                r.tipo == "repeticao" and any(c[0] in ("start-repeat", "end-repeat", "volta")
+                                              for c in r.dados["cmds"])):
+            cortes_rep.add(r.t)
     divididas = []
     for md in medidas:
         real = md.t1 - md.t0
+        cortes = {t for t in cortes_rep if md.t0 < t < md.t1}
         if real > md.tam:
-            cortes = [t for t in barras if md.t0 < t < md.t1]
+            cortes |= {t for t in barras if md.t0 < t < md.t1}
+        if cortes:
             inicio = md.t0
-            for corte in cortes + [md.t1]:
+            for corte in sorted(cortes) + [md.t1]:
                 divididas.append(MedidaCompasso(
                     md.c, inicio, corte, md.tam, md.pos if inicio == md.t0 else ZERO,
                     md.medindo if inicio == md.t0 else True))
