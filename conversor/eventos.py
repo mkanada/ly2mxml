@@ -13,6 +13,9 @@ from pathlib import Path
 FORMATO = 1
 
 ZERO = Fraction(0)
+# Maior distância entre o fim de uma nota ligada e o acorde de destino na mesma voz (um arpejo
+# ligado ao acorde final tem outras vozes no meio), em semibreves.
+LIMITE_BURACO = Fraction(1)
 
 
 class ErroFormato(Exception):
@@ -262,7 +265,9 @@ def ler_linhas(linhas) -> list[Partitura]:
         for n in [n for n, v in ps.vozes.items() if not v.acordes]:
             del ps.vozes[n]
         for pauta in ps.pautas.values():
-            pauta.temporaria = (pauta.fim is not None and pauta.fim < ps.fim) or pauta.inicio > 0
+            # Pauta criada no meio da peça (ossia). Uma pauta que só termina antes do fim não
+            # conta: uma mão pode acabar antes da outra sem ser ossia.
+            pauta.temporaria = pauta.inicio > 0
         # Compassos e fórmulas na ordem do tempo (a captura não garante a ordem).
         ps.compassos.sort(key=lambda x: x.t)
         ps.formulas.sort(key=lambda x: x.t)
@@ -314,10 +319,10 @@ def _montar_acordes(ps, linhas):
 def _ligaduras(ps):
     """Resolve o destino de cada ligadura, na mesma voz.
 
-    O destino é o acorde que começa em `fim` e tem a mesma altura. Num arpejo
-    (`c16~ g~ c~ ... <c g c'>4`) o dó liga ao acorde final por cima de outras notas da voz: então
-    segue-se a voz enquanto os acordes forem contíguos (sem pausa nem buraco). A apojatura ligada
-    à principal (`\\grace c8~ c4`) procura a principal no mesmo `t`.
+    O destino é o primeiro acorde da voz, a partir de `fim`, com a mesma altura. Num arpejo
+    (`c16~ g~ c~ ... <c g c'>4`) o dó liga ao acorde final por cima de outras notas, que podem ser
+    de outras vozes: então o buraco é aceito (até `LIMITE_BURACO`), mas uma pausa da voz corta.
+    A apojatura ligada à principal (`\\grace c8~ c4`) procura a principal no mesmo `t`.
     """
     for voz in ps.vozes.values():
         acordes = sorted(voz.acordes, key=lambda a: (a.t, a.g))
@@ -348,15 +353,12 @@ def _destino(acordes, i, midi):
         return None
     fim = a.fim
     for b in acordes[i + 1:]:
-        if b.g != 0:
+        if b.g != 0 or b.t < fim:
             continue
-        if b.t < fim:
-            continue          # outra voz do mesmo instante não está aqui; só a mesma voz
-        if b.t > fim or not b.alturas:
-            return None       # buraco ou pausa: a ligadura não tem destino
+        if not b.alturas or b.t - fim > LIMITE_BURACO:
+            return None       # pausa, ou longe demais: a ligadura não tem destino
         if any(x.midi == midi for x in b.alturas):
             return b
-        fim = b.fim
     return None
 
 

@@ -187,6 +187,35 @@ a leitura roda sem exceção; os únicos avisos são `ligadura sem destino` (31 
 - Pautas criadas e encerradas no meio (`\new Staff` temporário, ossia): ignorar a ossia e avisar.
 - `scripts/comparar-midi.py`: diferença entre o MIDI do LilyPond e o MIDI do MusicXML.
 
+**Andamento (07/10/2026, passos 08 a 11):** `conversor/montagem.py` (uma `PartStaff` por
+pauta, `StaffGroup` com chave; o music21 exporta como **um** `<part>` com `<staves>`),
+`conversor/lilypond.py`, `conversor/pipeline.py`, `ly2mxml.py`, `conversor/comparacao.py` e
+`scripts/comparar-midi.py`. Decisões e descobertas:
+
+- **`makeNotation=False` na gravação.** Com `makeNotation=True` o music21 renumera as vozes
+  (a voz 5 da segunda pauta vira 2). Então a montagem faz o que o music21 faria: `makeBeams` por
+  `Measure` (não aceita `Voice`) e `makeAccidentals` por parte. Durações irregulares (corte na
+  barra, buracos) são partidas em notas ligadas por `Duration.components`.
+- **Compassos entram na parte no offset absoluto** (`t0 × 4`), então uma pauta sem nada num
+  compasso não desloca os seguintes. A anacruse é o compasso 0 (`implicit="yes"`), sem
+  `paddingLeft`: o MusicXML não precisa dele.
+- **Vozes.** O número da voz do MusicXML sai de um coloração de intervalos por pauta: vozes do
+  LilyPond que não se sobrepõem compartilham o número (o LVB tem 30 `\new Voice` curtas), a
+  que tem mais notas é a 1ª. Passou de 4 vozes simultâneas: aviso, e os números seguintes vão de
+  9 em diante (em vez de descartar notas, como o passo previa).
+- **Armadura numerada.** O music21 só põe `number` no `<key>` inicial; as mudanças no meio
+  valeriam para as duas pautas. O pós-processamento (agora com `ElementTree`, não regex) dá o
+  `number` pela pauta da nota seguinte.
+- **Pauta temporária** (corrigido no passo 07): só `inicio > 0`. Uma mão que acaba antes da
+  outra não é ossia (o teste `03-vozes` mostrou isso).
+- **Ligadura sobre outras vozes.** O destino é a próxima nota da mesma voz e altura, mesmo com
+  buraco (até 1 semibreve): o arpejo de `Chop-28-1` liga o dó ao acorde final por cima de
+  notas de outras vozes.
+- `LY2MXML_SEM_MIDI` vazio vale como não definido (em Scheme, `""` é verdadeiro).
+- `scripts/comparar-midi.py` lê o MusicXML direto do XML (ElementTree), sem o music21, e usa a
+  mesma comparação do passo 06 (`conversor/comparacao.py`).
+- Sem apojaturas (passo 13) elas faltam no MusicXML; é a única diferença nas peças simples.
+
 ### Fase 3: o que muda o ritmo ou a ordem
 - Quiálteras (`\tuplet`/`\times`), com colchete.
 - Apojaturas (`\grace`, `\acciaccatura`, `\appoggiatura`) como `<grace/>`, sem consumir tempo.
