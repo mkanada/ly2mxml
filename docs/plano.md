@@ -130,6 +130,18 @@ a saída real da captura. Nas 31 peças: os mesmos 24/7, nenhum erro cita
 `SchumannOp15No07` tem 19 notas com pauta diferente da da voz, `bach-invention-01`
 segue com 467 notas.
 
+**Andamento (07/10/2026, passo 05):** `captura-preparar` nos três handlers
+(`toplevel-`, `book-` e `bookpart-score-handler`): sem definição de saída ganha
+`\layout` + `\midi`; só `\midi` ganha `\layout` com `capturaSoMidi = ##t`
+(propriedade registrada com `set-object-property!`); só `\layout` ganha `\midi`.
+`LY2MXML_SEM_MIDI=1` desliga o `\midi` acrescentado. `05-scores.ly` dá 4
+partituras com `so_midi` `false,true,false,false` e 4 MIDI; `05-book.ly` dá o `\book`
+primeiro (`so_midi` `true,false,false`) e o `\score` do topo por último, e o log
+repete `05-book-1.midi` (nome duplicado, como previsto). Nas 31 peças: os mesmos
+24/7; `KV331`, `intermezzo`, `No03_Albumblatt` e `5.Inquietude` têm 2 partituras (a 2ª
+`so_midi`), `sonatina-1` tem 3 sem `so_midi`. `Chop-28-2`, `diabeli` e `maple`
+seguem sem partitura por causa dos erros pré-existentes (passo 02).
+
 - `ly/captura.ly`: notas, pausas e acordes com momento, pauta e voz.
 - Resolver as pegadinhas da injeção:
   - partitura sem `\layout` (só `\midi`): os engravers não rodam. Forçar um `\layout` pelo

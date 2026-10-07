@@ -310,7 +310,7 @@
 % Engraver de Score: partitura/fim (passo 02), zeramento dos contadores
 % (passo 03) e a parte de tempo (passo 04): `compasso`, `formula`, `barra`,
 % `repeticao` e os ouvintes de `volta`, `rep-inicio` e `rep-fim`.
-% A propriedade capturaSoMidi só passa a existir no passo 05; até lá vale #f.
+% A propriedade capturaSoMidi (passo 05) marca o \score que só tinha \midi.
 #(define (captura-score ctx)
    (set! captura-n-partitura (1+ captura-n-partitura))
    (let ((p captura-n-partitura)
@@ -381,6 +381,46 @@
       ((finalize eng)
        (emitir `((tipo . "fim") (p . ,p)
                  (t . ,(fracao (ly:moment-main (ly:context-current-moment ctx))))))))))
+
+% Propriedade de contexto que marca o \score que só tinha \midi (passo 05).
+% Sem isto o LilyPond recusa `capturaSoMidi = ##t` num \context.
+#(for-each
+  (lambda (s)
+    (set-object-property! s 'translation-type? boolean?)
+    (set-object-property! s 'translation-doc "ly2mxml: marcado pela captura"))
+  '(capturaSoMidi))
+
+% Passo 05: cada \score ganha as definições de saída que faltam, para que os
+% engravers rodem (precisam de um \layout) e para que toda partitura capturada
+% gere um MIDI (o passo 06 compara os dois). Com LY2MXML_SEM_MIDI=1 o \midi
+% não é acrescentado (o ly2mxml.py usa isso quando não vai comparar).
+#(define captura-sem-midi (and (getenv "LY2MXML_SEM_MIDI") #t))
+
+#(define (captura-tipo od)
+   (module-ref (ly:output-def-scope od) 'output-def-kind #f))
+
+#(define (captura-preparar score)
+   (let* ((ods (ly:score-output-defs score))
+          (tem-layout (any (lambda (od) (eq? (captura-tipo od) 'layout)) ods))
+          (tem-midi (any (lambda (od) (eq? (captura-tipo od) 'midi)) ods)))
+     ;; Só \midi: layout marcado, para o leitor poder descartar a partitura.
+     (if (and (pair? ods) (not tem-layout))
+         (ly:score-add-output-def!
+          score #{ \layout { \context { \Score capturaSoMidi = ##t } } #}))
+     ;; Nenhuma definição: o LilyPond desenharia com o layout padrão, mas só
+     ;; enquanto a lista está vazia; então o \layout entra junto com o \midi.
+     (if (null? ods)
+         (ly:score-add-output-def! score #{ \layout { } #}))
+     (if (and (not tem-midi) (not captura-sem-midi))
+         (ly:score-add-output-def! score #{ \midi { } #}))
+     score))
+
+#(set! toplevel-score-handler
+   (let ((h toplevel-score-handler)) (lambda (score) (h (captura-preparar score)))))
+#(set! book-score-handler
+   (let ((h book-score-handler)) (lambda (b score) (h b (captura-preparar score)))))
+#(set! bookpart-score-handler
+   (let ((h bookpart-score-handler)) (lambda (b score) (h b (captura-preparar score)))))
 
 \layout {
   \context { \Score \consists #captura-score }

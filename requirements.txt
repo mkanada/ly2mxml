@@ -3,3 +3,5 @@
 music21==10.5.0
 verovio==6.3.0
 mido==1.3.3
+# Adicionado em 07/10/2026 (passo 06): testes.
+pytest==9.1.1
