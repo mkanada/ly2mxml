@@ -21,6 +21,7 @@ if [[ ! -f "$ARQ" ]]; then
   exit 1
 fi
 
+ARQ="$(cd "$(dirname "$ARQ")" && pwd)/$(basename "$ARQ")"
 RAIZ="$(cd "$(dirname "$0")/.." && pwd)"
 LY="$RAIZ/ferramentas/lilypond/bin"
 CAPTURA="$RAIZ/ly/captura.ly"
@@ -38,12 +39,23 @@ BASE="$(basename "$ARQ" .ly)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# 1. Atualiza a sintaxe para 2.26 numa cópia temporária, sem tocar no original.
-# O convert-ly sem -e escreve em stdout.
-if ! "$LY/convert-ly" "$ARQ" > "$TMP/$BASE-2.26.ly" 2> "$TMP/convert.log"; then
-  echo "ly2json: convert-ly falhou para $ARQ:" >&2
-  cat "$TMP/convert.log" >&2
-  exit 2
+# 1. Atualiza a sintaxe para 2.26 numa cópia temporária, sem tocar no original: o convert-ly e as
+# correções de conversor/compat.py (o mesmo que o ly2mxml.py faz). Sem o .venv, só o convert-ly.
+PY="$RAIZ/.venv/bin/python"
+if [[ -x "$PY" ]]; then
+  if ! (cd "$RAIZ" && "$PY" -m conversor.atualizar "$ARQ" "$TMP/$BASE-2.26.ly") 2> "$TMP/convert.log"; then
+    echo "ly2json: convert-ly falhou para $ARQ:" >&2
+    cat "$TMP/convert.log" >&2
+    exit 2
+  fi
+  grep -v '^compatibilidade' "$TMP/convert.log" >&2 || true
+else
+  # O convert-ly sem -e escreve em stdout.
+  if ! "$LY/convert-ly" "$ARQ" > "$TMP/$BASE-2.26.ly" 2> "$TMP/convert.log"; then
+    echo "ly2json: convert-ly falhou para $ARQ:" >&2
+    cat "$TMP/convert.log" >&2
+    exit 2
+  fi
 fi
 
 # 2. Envelope: a captura antes do arquivo do usuário. A ordem importa, pois o

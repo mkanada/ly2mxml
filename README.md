@@ -21,8 +21,21 @@ Grava `ARQ.musicxml` no diretório atual (nunca ao lado do original). Com vária
 são descartadas, salvo com `--todas`). Avisos vão para stderr. Status: 0 gravou, 2 `convert-ly`
 falhou, 3 `lilypond` falhou, 4 sem partitura com notas.
 
-Conferir contra o MIDI do próprio LilyPond: `.venv/bin/python scripts/comparar-midi.py ARQ.ly`.
-Testes: `.venv/bin/python -m pytest`.
+Outras ferramentas (todas em `scripts/`, rodadas com `.venv/bin/python`):
+
+- `comparar-midi.py ARQ.ly`: confere o MusicXML gerado contra o MIDI do próprio LilyPond, nota por
+  nota (início, altura, duração, apojaturas), com as repetições desdobradas quando a peça traz a
+  cópia `\unfoldRepeats` só para o MIDI.
+- `converter-todos.py [PECA...] [-j N]`: converte o acervo em paralelo e grava `saida/_resumo.csv`
+  (o teste de regressão, versionado) e `saida/_avisos.log`; no fim diz o que mudou desde a rodada
+  anterior.
+- `conferir.py PECA [-p N] [-c A-B]`: página HTML com o desenho do LilyPond ao lado do desenho do
+  MusicXML (Verovio), para quando o MIDI bate mas algo parece errado.
+- `ly2json.sh`, `json-vs-midi.py`: diagnóstico da captura (eventos JSON e a comparação deles com o
+  MIDI).
+
+Testes: `.venv/bin/python -m pytest` (os que chamam o LilyPond são pulados se `ferramentas/lilypond`
+não existir).
 
 ## Documentação
 

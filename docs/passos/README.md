@@ -8,6 +8,11 @@ pronto.
 Escritos em 05/10/2026, depois de testar as premissas da Fase 1 no LilyPond 2.26.0 instalado (ver
 [Fatos verificados](#fatos-verificados)).
 
+## Estado
+
+Os passos 00 a 17 e quase todo o 18 foram implementados em 07/10/2026; o que se descobriu em cada
+um está em [docs/plano.md](../plano.md), nas notas de andamento de cada fase.
+
 ## Ordem
 
 | # | Passo | Fase | Cria |
