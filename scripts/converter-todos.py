@@ -26,6 +26,7 @@ sys.path.insert(0, str(RAIZ))
 
 COLUNAS = ["peca", "p", "versao", "status", "segundos", "compassos", "pautas", "vozes", "notas",
            "pausas", "acordes", "ligaduras", "quialteras", "apojaturas", "repeticoes", "casas",
+           "dinamicas", "hairpins", "ligaduras_expr", "articulacoes", "pedais", "andamentos",
            "formula", "armadura", "midi", "gemea", "avisos", "hash"]
 TIMEOUT = 120
 

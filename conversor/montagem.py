@@ -14,6 +14,7 @@ from pathlib import Path
 from music21 import (bar, clef, duration, key, layout, metadata, meter, note, chord, pitch,
                      spanner, stream, tie)
 
+from . import notacao
 from .eventos import Figura
 
 QUATRO = Fraction(4)
@@ -57,9 +58,17 @@ class Montagem:
     ps: object
     avisos: list = field(default_factory=list)
     implicitos: list = field(default_factory=list)   # rótulos dos compassos que não contam
+    primeira_pauta: int = 0
+    refs: dict = field(default_factory=dict)         # id(acorde) -> [(elemento, compasso, offset)]
+    _avisados: set = field(default_factory=set)
 
     def avisar(self, texto):
         self.avisos.append(texto)
+
+    def avisar_uma_vez(self, texto):
+        if texto not in self._avisados:
+            self._avisados.add(texto)
+            self.avisos.append(texto)
 
 
 # ---------------------------------------------------------------------------
@@ -366,6 +375,7 @@ def _construir(m: Montagem):
         m.avisar(f"{perdidos} acordes em pautas ignoradas descartados")
 
     camadas = _camadas([a for lista in por_pauta.values() for a in lista])
+    m.primeira_pauta = ativas[0]
     numeros_voz = _atribuir_vozes(m, ativas, por_pauta, camadas)
 
     partes = {}
@@ -383,6 +393,7 @@ def _construir(m: Montagem):
 
     sc = stream.Score()
     sc.metadata = metadata.Metadata()
+    notacao.preencher_metadados(ps, sc.metadata)
     for n in ativas:
         sc.insert(0, partes[n])
     if len(ativas) > 1:
@@ -417,8 +428,14 @@ def _montar_pauta(m, ps, parte, n_pauta, base_voz, acordes, numeros, camadas, me
         _inserir_atributo(m, por_medida, medidas, md, a.t, key.KeySignature(n), "armadura")
     for f in ps.formulas:
         md = compasso_de(f.t)
-        _inserir_atributo(m, por_medida, medidas, md, f.t,
-                          meter.TimeSignature(f"{f.num}/{f.den}"), "fórmula")
+        ts = meter.TimeSignature(f"{f.num}/{f.den}")
+        # O LilyPond desenha C e ₵ por padrão (estilo `C`); `\numericTimeSignature` desliga.
+        estilo = _estilo_da_formula(ps, n_pauta, f.t)
+        if estilo == "C" and (f.num, f.den) == (4, 4):
+            ts.symbol = "common"
+        elif estilo == "C" and (f.num, f.den) == (2, 2):
+            ts.symbol = "cut"
+        _inserir_atributo(m, por_medida, medidas, md, f.t, ts, "fórmula")
 
     # Barras: no compasso que termina no instante da linha.
     for b in ps.barras:
@@ -458,6 +475,17 @@ def _montar_pauta(m, ps, parte, n_pauta, base_voz, acordes, numeros, camadas, me
             _preencher_voz(m, v, md, [], qi)
             obj.insert(0, v)
         parte.insert(md.t0 * QUATRO, obj)
+    notacao.aplicar(m, ps, parte, n_pauta, acordes, {id(md): obj for md, obj in zip(medidas, por_medida)},
+                    medidas, compasso_de, n_pauta == m.primeira_pauta)
+
+
+def _estilo_da_formula(ps, n_pauta, t):
+    """O `TimeSignature.style` da pauta no instante `t` ("C" por padrão, ou "numbered")."""
+    estilo = "C"
+    for ti, e in sorted(ps.estilos_formula.get(n_pauta, [])):
+        if ti <= t:
+            estilo = e
+    return estilo
 
 
 def _ultimas_por_instante(linhas):
@@ -709,8 +737,10 @@ def _inserir_peca(m, voz, md, p, quialteras):
         # Apojatura: sem duração no compasso; barra (cortada) quando `a.barra`.
         sem_escala = Figura(a.figura.fig, a.figura.pontos, Fraction(1), a.figura.dur)
         d = _duracao_figura(sem_escala) or duration.Duration(0.25)
-        elem = _criar_elemento(a, d, False, False, True, True)
-        voz.insert(off, elem.getGrace(appoggiatura=not a.barra))
+        elem = _criar_elemento(a, d, False, False, True, True).getGrace(
+            appoggiatura=not a.barra)
+        voz.insert(off, elem)
+        m.refs.setdefault(id(a), []).append((elem, md, off))
         return
     ql = (p.fim - p.ini) * QUATRO
     durs = _durs_da_peca(p, ql, _quialtera_de(quialteras, a))
@@ -726,6 +756,7 @@ def _inserir_peca(m, voz, md, p, quialteras):
                                    (not p.ultimo) or j < len(durs) - 1,
                                    p.primeiro and j == 0, p.ultimo and j == len(durs) - 1)
         voz.insert(off, elem)
+        m.refs.setdefault(id(a), []).append((elem, md, off))
         off += d.quarterLength
 
 
@@ -792,7 +823,8 @@ def _pos_processar(m, saida: Path):
             for data in encoding.findall("encoding-date"):
                 encoding.remove(data)
     for titulo in raiz.findall("movement-title"):
-        raiz.remove(titulo)
+        if titulo.text == "Music21 Fragment":
+            raiz.remove(titulo)
     ids = {}
     for n, sp in enumerate(raiz.iter("score-part"), 1):
         ids[sp.get("id")] = f"P{n}"

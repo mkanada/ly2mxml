@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
 
-FORMATO = 1
+FORMATOS = (1, 2)       # o 2 acrescenta as linhas de notação (passo 18); o leitor aceita os dois
 
 ZERO = Fraction(0)
 # Maior distância entre o fim de uma nota ligada e o acorde de destino na mesma voz (um arpejo
@@ -53,6 +53,9 @@ class Acorde:
     lig_chega: list[bool] = field(default_factory=list)   # por altura: termina ligadura
     barra: bool = False              # apojatura cortada
     compasso_inteiro: bool = False   # pausa de compasso (R)
+    art: list[str] = field(default_factory=list)       # articulações e ornamentos (passo 18)
+    dedo: int | None = None                            # dedilhado
+    textos: list[str] = field(default_factory=list)    # `^"texto"`
 
     @property
     def fim(self):
@@ -143,6 +146,17 @@ class Quialtera:
 
 
 @dataclass(slots=True)
+class Marca:
+    """Dinâmica, hairpin, ligadura de expressão ou pedal: eventos da voz com início e fim."""
+    tipo: str            # "dinamica", "hairpin", "expressao", "pedal"
+    voz: int
+    pauta: int
+    t: Fraction
+    g: Fraction
+    dados: dict          # as colunas da linha que não são comuns (texto, forma, nome, dir...)
+
+
+@dataclass(slots=True)
 class Partitura:
     p: int
     so_midi: bool = False
@@ -157,6 +171,11 @@ class Partitura:
     repeticoes: list[Repeticao] = field(default_factory=list)
     quialteras: dict[int, list[Quialtera]] = field(default_factory=dict)
     avisos: list[str] = field(default_factory=list)
+    marcas: list[Marca] = field(default_factory=list)
+    andamentos: list[dict] = field(default_factory=list)          # t, texto, bpm, unidade
+    ottavas: dict[int, list[tuple]] = field(default_factory=dict)  # pauta -> [(t, n)]
+    estilos_formula: dict[int, list[tuple]] = field(default_factory=dict)  # pauta -> [(t, estilo)]
+    metadados: dict = field(default_factory=dict)
 
 
 def _fr(x):
@@ -196,12 +215,13 @@ def ler(caminho) -> list[Partitura]:
 def ler_linhas(linhas) -> list[Partitura]:
     if not linhas or linhas[0].get("tipo") != "cabecalho":
         raise ErroFormato("a primeira linha não é o cabeçalho da captura")
-    if linhas[0].get("formato") != FORMATO:
+    if linhas[0].get("formato") not in FORMATOS:
         raise ErroFormato(f"formato {linhas[0].get('formato')} não suportado "
-                          f"(esta leitura entende o formato {FORMATO})")
+                          f"(esta leitura entende os formatos {', '.join(map(str, FORMATOS))})")
 
     partituras: dict[int, Partitura] = {}
     notas = defaultdict(list)    # p -> linhas `nota`/`pausa`/`pausa-compasso` de voz
+    decoracoes = defaultdict(list)   # p -> articulações, dedilhado e textos (de um acorde)
     desconhecidos = set()
 
     def da(p):
@@ -246,6 +266,21 @@ def ler_linhas(linhas) -> list[Partitura]:
             dados = {k: v for k, v in e.items() if k not in ("tipo", "p", "t", "g", "c", "pos")}
             da(p).repeticoes.append(
                 Repeticao(tipo, _fr(e["t"]), e["c"], _fr(e["pos"]), dados))
+        elif tipo in ("articulacao", "dedo", "texto"):
+            decoracoes[p].append(e)
+        elif tipo in ("dinamica", "hairpin", "expressao", "pedal"):
+            dados = {k: v for k, v in e.items()
+                     if k not in ("tipo", "p", "voz", "pauta", "t", "g", "c", "pos")}
+            da(p).marcas.append(Marca(tipo, e["voz"], e["pauta"], _fr(e["t"]), _fr(e["g"]), dados))
+        elif tipo == "andamento":
+            da(p).andamentos.append({"t": _fr(e["t"]), "texto": e["texto"], "bpm": e["bpm"],
+                                     "unidade": e["unidade"]})
+        elif tipo == "ottava":
+            da(p).ottavas.setdefault(e["pauta"], []).append((_fr(e["t"]), e["n"]))
+        elif tipo == "estilo-formula":
+            da(p).estilos_formula.setdefault(e["pauta"], []).append((_fr(e["t"]), e["estilo"]))
+        elif tipo == "metadados":
+            da(p).metadados = dict(e["campos"])
         elif tipo == "fim":
             da(p).fim = _fr(e["t"])
         elif tipo == "aviso":
@@ -262,6 +297,7 @@ def ler_linhas(linhas) -> list[Partitura]:
     for p, ps in partituras.items():
         _montar_acordes(ps, notas.get(p, []))
         _ligaduras(ps)
+        _decorar(ps, decoracoes.get(p, []))
         for voz in ps.vozes.values():
             voz.acordes.sort(key=lambda a: (a.t, a.g))
         # Voz sem nenhum acorde (só `s`) não existe para a montagem.
@@ -317,6 +353,28 @@ def _montar_acordes(ps, linhas):
                 voz, primeiro["pauta"], t, g, primeiro["c"], _fr(primeiro["pos"]),
                 _figura(primeiro), alturas, ligs, [False] * len(alturas),
                 barra=bool(primeiro.get("barra", False))))
+
+
+def _decorar(ps, linhas):
+    """Pendura articulações, dedilhado e textos no acorde da mesma voz, no mesmo `(t, g)`; sem
+    acorde ali (pausa, espaço), vão para o primeiro acorde de notas que começa depois."""
+    por_voz = {}
+    for voz in ps.vozes.values():
+        por_voz[voz.voz] = sorted((a for a in voz.acordes if a.alturas),
+                                  key=lambda a: (a.t, a.g))
+    for e in linhas:
+        acordes = por_voz.get(e["voz"], [])
+        t, g = _fr(e["t"]), _fr(e["g"])
+        alvo = next((a for a in acordes if (a.t, a.g) >= (t, g)), None)
+        if alvo is None:
+            continue
+        if e["tipo"] == "articulacao":
+            if e["nome"] not in alvo.art:
+                alvo.art.append(e["nome"])
+        elif e["tipo"] == "dedo":
+            alvo.dedo = int(e["digito"])
+        else:
+            alvo.textos.append(e["texto"])
 
 
 def _ligaduras(ps):

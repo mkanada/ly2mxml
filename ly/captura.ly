@@ -93,7 +93,7 @@
 
 % Primeira linha do arquivo, uma vez só, quando este arquivo é carregado
 % (antes do .ly do usuário, que vem depois no envelope).
-#(emitir `((tipo . "cabecalho") (formato . 1) (lilypond . ,(lilypond-version))))
+#(emitir `((tipo . "cabecalho") (formato . 2) (lilypond . ,(lilypond-version))))
 
 % Contadores por partitura (passo 03): voz e pauta recomeçam a cada `\score`.
 % São zerados no `initialize` do engraver de `Score`, criado antes das pautas
@@ -194,6 +194,45 @@
              (t . ,(fracao (ly:moment-main (ly:context-current-moment ctx))))
              (texto . ,texto))))
 
+% Passo 18 (notação): texto de um markup ou string, e linhas de marca da voz.
+#(define (captura-texto x)
+   (cond ((string? x) x)
+         ((symbol? x) (symbol->string x))
+         ((markup? x) (markup->string x))
+         (else (format #f "~a" x))))
+
+#(define (emitir-marca ctx voz tipo extras)
+   (emitir (append `((tipo . ,tipo)) (campos-voz ctx voz) extras)))
+
+% O mesmo evento chega a todas as vozes (andamento, por exemplo): emite uma vez só por
+% partitura, com esta chave.
+#(define captura-vistos (make-hash-table))
+#(define (captura-primeira-vez? chave)
+   (if (hash-ref captura-vistos chave #f)
+       #f
+       (begin (hash-set! captura-vistos chave #t) #t)))
+
+#(define (captura-dir ev)
+   (if (= (ly:event-property ev 'span-direction) -1) "inicio" "fim"))
+
+% `metronome-count` é um número ou um par (60 . 80); `tempo-unit` é uma duração.
+#(define (emitir-andamento ctx voz ev)
+   (let* ((bpm (ly:event-property ev 'metronome-count #f))
+          (unidade (ly:event-property ev 'tempo-unit #f))
+          (texto (ly:event-property ev 'text #f))
+          (texto (if texto (captura-texto texto) ""))
+          (t (fracao (ly:moment-main (ly:context-current-moment ctx))))
+          (bpm-json (cond ((pair? bpm) (list (car bpm) (cdr bpm)))
+                          ((number? bpm) bpm)
+                          (else 'null))))
+     (if (captura-primeira-vez? (list 'andamento t texto bpm))
+         (emitir `((tipo . "andamento") (p . ,captura-n-partitura) (t . ,t)
+                   (texto . ,texto) (bpm . ,bpm-json)
+                   (unidade . ,(if (ly:duration? unidade)
+                                   (objeto `((fig . ,(ly:duration-log unidade))
+                                             (pontos . ,(ly:duration-dot-count unidade))))
+                                   'null)))))))
+
 % Engraver de `Voice` (passo 03): linhas `voz`, `nota`, `pausa`,
 % `pausa-compasso` e `quialtera`. As notas esperam até o
 % `stop-translation-timestep` porque, num acorde ligado `<g b>2~`, o
@@ -215,6 +254,32 @@
        ((rest-event eng ev) (emitir-pausa ctx voz ev))
        ((multi-measure-rest-event eng ev) (emitir-pausa-compasso ctx voz ev))
        ((tuplet-span-event eng ev) (emitir-quialtera ctx voz ev))
+       ;; Passo 18: notação (articulações, dinâmica, ligaduras de expressão, pedal...).
+       ((articulation-event eng ev)
+        (emitir-marca ctx voz "articulacao"
+                      `((nome . ,(captura-texto (ly:event-property ev 'articulation-type))))))
+       ((arpeggio-event eng ev) (emitir-marca ctx voz "articulacao" '((nome . "arpeggio"))))
+       ((fingering-event eng ev)
+        (emitir-marca ctx voz "dedo" `((digito . ,(ly:event-property ev 'digit)))))
+       ((text-script-event eng ev)
+        (emitir-marca ctx voz "texto" `((texto . ,(captura-texto (ly:event-property ev 'text))))))
+       ((absolute-dynamic-event eng ev)
+        (emitir-marca ctx voz "dinamica" `((texto . ,(captura-texto (ly:event-property ev 'text))))))
+       ((crescendo-event eng ev)
+        (emitir-marca ctx voz "hairpin" `((forma . "cresc") (dir . ,(captura-dir ev)))))
+       ((decrescendo-event eng ev)
+        (emitir-marca ctx voz "hairpin" `((forma . "decresc") (dir . ,(captura-dir ev)))))
+       ((slur-event eng ev)
+        (emitir-marca ctx voz "expressao" `((nome . "slur") (dir . ,(captura-dir ev)))))
+       ((phrasing-slur-event eng ev)
+        (emitir-marca ctx voz "expressao" `((nome . "frase") (dir . ,(captura-dir ev)))))
+       ((sustain-event eng ev)
+        (emitir-marca ctx voz "pedal" `((nome . "sustain") (dir . ,(captura-dir ev)))))
+       ((sostenuto-event eng ev)
+        (emitir-marca ctx voz "pedal" `((nome . "sostenuto") (dir . ,(captura-dir ev)))))
+       ((una-corda-event eng ev)
+        (emitir-marca ctx voz "pedal" `((nome . "unacorda") (dir . ,(captura-dir ev)))))
+       ((tempo-change-event eng ev) (emitir-andamento ctx voz ev))
        ;; Passo 14: o tremolo sai como notas simples (a fase 5 trata do símbolo).
        ((tremolo-event eng ev) (captura-aviso ctx "tremolo escrito como nota simples"))
        ((tremolo-span-event eng ev)
@@ -256,7 +321,9 @@
    (let ((pauta captura-n-pauta)
          (clave-ant #f)
          (arm-ant #f)
-         (avisou-formula #f))
+         (avisou-formula #f)
+         (ottava-ant 0)
+         (estilo-ant #f))
      ;; O registro tem de vir já no initialize: a voz consulta a tabela no
      ;; primeiro evento.
      (hashq-set! captura-pautas ctx pauta)
@@ -278,6 +345,24 @@
               (score (ly:context-find ctx 'Score))
               (formula-pauta (ly:context-property ctx 'timeSignature))
               (formula-score (and score (ly:context-property score 'timeSignature))))
+         ;; Passo 18: `\ottava` (middleCOffset em múltiplos de 7) e o estilo da fórmula.
+         (let* ((off (ly:context-property ctx 'middleCOffset 0))
+                (n (if (and (integer? off) (zero? (remainder off 7))) (- (quotient off 7)) 0)))
+           (if (not (= n ottava-ant))
+               (begin
+                 (set! ottava-ant n)
+                 (emitir (append `((tipo . "ottava"))
+                                 (campos-pauta ctx pauta)
+                                 `((n . ,n)))))))
+         (let* ((def (ly:context-grob-definition ctx 'TimeSignature))
+                (estilo (assoc-get 'style (if (pair? def) def '()) 'C))
+                (estilo (if (symbol? estilo) (symbol->string estilo) "C")))
+           (if (not (equal? estilo estilo-ant))
+               (begin
+                 (set! estilo-ant estilo)
+                 (emitir (append `((tipo . "estilo-formula"))
+                                 (campos-pauta ctx pauta)
+                                 `((estilo . ,estilo)))))))
          (if (and (string? glifo) (not (equal? clave clave-ant)))
              (begin
                (set! clave-ant clave)
@@ -328,12 +413,14 @@
    (let ((p captura-n-partitura)
          (compasso-ant #f)
          (pos-ant #f)
-         (formula-ant #f))
+         (formula-ant #f)
+         (metadados-emitidos #f))
      (make-engraver
       ((initialize eng)
        (set! captura-n-voz 0)
        (set! captura-n-pauta 0)
        (set! captura-pautas (make-hash-table))
+       (set! captura-vistos (make-hash-table))
        (emitir `((tipo . "partitura") (p . ,p)
                  (so_midi . ,(eq? #t (ly:context-property ctx 'capturaSoMidi #f))))))
       (listeners
@@ -358,6 +445,13 @@
                         (campos-tempo ctx)
                         `((volta . ,(ly:event-property ev 'return-count 1)))))))
       ((process-music eng)
+       (let ((meta (ly:context-property ctx 'capturaMetadados '())))
+         (if (and (pair? meta) (not metadados-emitidos))
+             (begin
+               (set! metadados-emitidos #t)
+               (emitir `((tipo . "metadados") (p . ,p)
+                         (campos . ,(objeto (map (lambda (par) (cons (string->symbol (car par)) (cdr par)))
+                                                 meta))))))))
        (let* ((c (ly:context-property ctx 'currentBarNumber 1))
              (pos-obj (ly:context-property ctx 'measurePosition (ly:make-moment 0)))
              (pos (if (ly:moment? pos-obj) (ly:moment-main pos-obj) pos-obj))
@@ -406,6 +500,10 @@
     (set-object-property! s 'translation-type? boolean?)
     (set-object-property! s 'translation-doc "ly2mxml: marcado pela captura"))
   '(capturaSoMidi))
+% Passo 18: os campos do \header (do arquivo e do \score) chegam ao engraver de Score por esta
+% propriedade, atribuída no começo da música do \score (ver captura-reconstruir).
+#(set-object-property! 'capturaMetadados 'translation-type? list?)
+#(set-object-property! 'capturaMetadados 'translation-doc "ly2mxml: campos do \\header")
 
 % Passo 05: cada \score ganha as definições de saída que faltam, para que os
 % engravers rodem (precisam de um \layout) e para que toda partitura capturada
@@ -429,18 +527,44 @@
                 music)
      achou))
 
-#(define (captura-desdobrar-percent score)
-   (if (captura-tem-percent? (ly:score-music score))
-       (let ((novo (ly:make-score #{ \unfoldRepeats percent #(ly:score-music score) #})))
-         (if (module? (ly:score-header score))
-             (ly:score-set-header! novo (ly:score-header score)))
-         (for-each (lambda (od) (ly:score-add-output-def! novo od))
-                   (ly:score-output-defs score))
-         novo)
-       score))
+% Campos do \header do arquivo e do \score como alist (string . string); o do \score vale mais.
+#(define (captura-metadados score)
+   (let* ((module->alist (lambda (h) (if (module? h) (ly:module->alist h) '())))
+          (todos (append (module->alist (ly:score-header score))
+                         (module->alist (ly:parser-lookup '$defaultheader))))
+          (vistos '()))
+     (filter-map
+      (lambda (par)
+        (let ((chave (symbol->string (car par))))
+          (if (member chave vistos)
+              #f
+              (begin
+                (set! vistos (cons chave vistos))
+                (let ((valor (cdr par)))
+                  (if (or (string? valor) (markup? valor) (symbol? valor))
+                      (cons chave (captura-texto valor))
+                      #f))))))
+      todos)))
+
+% Reconstrói o \score quando preciso: desdobra `\repeat percent` e põe os metadados na música.
+% Mantém o cabeçalho e as saídas.
+#(define (captura-reconstruir score)
+   (let* ((musica (ly:score-music score))
+          (percent (captura-tem-percent? musica))
+          (meta (captura-metadados score)))
+     (if (or percent (pair? meta))
+         (let* ((m1 (if percent #{ \unfoldRepeats percent #musica #} musica))
+                (m2 (if (pair? meta) #{ \set Score.capturaMetadados = #meta #m1 #} m1))
+                (novo (ly:make-score m2)))
+           (if (module? (ly:score-header score))
+               (ly:score-set-header! novo (ly:score-header score)))
+           (for-each (lambda (od) (ly:score-add-output-def! novo od))
+                     (ly:score-output-defs score))
+           novo)
+         score)))
 
 #(define (captura-preparar score0)
-   (let* ((score (captura-desdobrar-percent score0))
+   (let* ((score (captura-reconstruir score0))
           (ods (ly:score-output-defs score))
           (tem-layout (any (lambda (od) (eq? (captura-tipo od) 'layout)) ods))
           (tem-midi (any (lambda (od) (eq? (captura-tipo od) 'midi)) ods)))

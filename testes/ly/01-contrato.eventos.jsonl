@@ -1,11 +1,13 @@
-{"tipo":"cabecalho","formato":1,"lilypond":"2.26.0"}
+{"tipo":"cabecalho","formato":2,"lilypond":"2.26.0"}
 {"tipo":"partitura","p":1,"so_midi":false}
 {"tipo":"pauta","p":1,"pauta":1,"id":"up","contexto":"Staff","t":"0"}
 {"tipo":"voz","p":1,"voz":1,"id":"","pauta":1,"t":"0"}
 {"tipo":"pauta","p":1,"pauta":2,"id":"down","contexto":"Staff","t":"0"}
 {"tipo":"voz","p":1,"voz":2,"id":"","pauta":2,"t":"0"}
+{"tipo":"estilo-formula","p":1,"pauta":1,"t":"0","g":"0","c":1,"pos":"-1/4","estilo":"C"}
 {"tipo":"clave","p":1,"pauta":1,"t":"0","g":"0","c":1,"pos":"-1/4","glifo":"clefs.G","posicao":-2,"transp":0}
 {"tipo":"armadura","p":1,"pauta":1,"t":"0","g":"0","c":1,"pos":"-1/4","tonica":{"oitava":-1,"nota":4,"alt":"0"},"alteracoes":[[3,"1/2"]]}
+{"tipo":"estilo-formula","p":1,"pauta":2,"t":"0","g":"0","c":1,"pos":"-1/4","estilo":"C"}
 {"tipo":"clave","p":1,"pauta":2,"t":"0","g":"0","c":1,"pos":"-1/4","glifo":"clefs.F","posicao":2,"transp":0}
 {"tipo":"armadura","p":1,"pauta":2,"t":"0","g":"0","c":1,"pos":"-1/4","tonica":{"oitava":0,"nota":0,"alt":"0"},"alteracoes":[]}
 {"tipo":"compasso","p":1,"t":"0","g":"0","c":1,"pos":"-1/4","tam":"3/4","medindo":true}

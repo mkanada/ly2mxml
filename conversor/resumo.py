@@ -9,7 +9,8 @@ def resumir(caminho) -> dict:
     põe todas as pautas."""
     raiz = ET.parse(str(caminho)).getroot()
     r = dict(compassos=0, pautas=1, vozes=0, notas=0, pausas=0, acordes=0, ligaduras=0,
-             quialteras=0, apojaturas=0, repeticoes=0, casas=0)
+             quialteras=0, apojaturas=0, repeticoes=0, casas=0, dinamicas=0, hairpins=0,
+             ligaduras_expr=0, articulacoes=0, pedais=0, andamentos=0)
     formulas, armaduras = [], []
     vozes = set()
     h = hashlib.sha1()
@@ -31,6 +32,13 @@ def resumir(caminho) -> dict:
                     f = k.findtext("fifths")
                     if f is not None and (not armaduras or armaduras[-1] != f):
                         armaduras.append(f)
+            elif el.tag == "direction":
+                r["dinamicas"] += len(el.findall("direction-type/dynamics"))
+                r["hairpins"] += sum(1 for w in el.findall("direction-type/wedge")
+                                     if w.get("type") in ("crescendo", "diminuendo"))
+                r["pedais"] += sum(1 for w in el.findall("direction-type/pedal")
+                                   if w.get("type") == "start")
+                r["andamentos"] += len(el.findall("direction-type/metronome"))
             elif el.tag == "barline":
                 for rep in el.findall("repeat"):
                     r["repeticoes"] += 1
@@ -64,6 +72,13 @@ def resumir(caminho) -> dict:
                     for t in el.findall("notations/tuplet"):
                         if t.get("type") == "start":
                             r["quialteras"] += 1
+                for sl in el.findall("notations/slur"):
+                    if sl.get("type") == "start":
+                        r["ligaduras_expr"] += 1
+                r["articulacoes"] += sum(len(x) for x in el.findall("notations/articulations"))
+                r["articulacoes"] += sum(len(x) for x in el.findall("notations/ornaments"))
+                r["articulacoes"] += len(el.findall("notations/fermata"))
+                r["articulacoes"] += len(el.findall("notations/arpeggiate"))
     r["vozes"] = len(vozes)
     return {**r, "formula": " ".join(formulas), "armadura": " ".join(armaduras),
             "hash": h.hexdigest()[:10]}

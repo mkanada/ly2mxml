@@ -16,7 +16,7 @@ def jsonl(tmp_path, *linhas):
     return caminho
 
 
-CAB = {"tipo": "cabecalho", "formato": 1, "lilypond": "2.26.0"}
+CAB = {"tipo": "cabecalho", "formato": 2, "lilypond": "2.26.0"}
 
 
 def nota(p=1, voz=1, t="0", midi=60, dur="1/4", lig=False, g="0", pauta=1, c=1, **extra):
@@ -119,16 +119,16 @@ def test_acorde_com_duracoes_diferentes_separa_e_avisa(tmp_path):
 
 
 def test_formato_diferente(tmp_path):
-    c = jsonl(tmp_path, {"tipo": "cabecalho", "formato": 2, "lilypond": "x"})
-    with pytest.raises(eventos.ErroFormato, match="formato 2"):
+    c = jsonl(tmp_path, {"tipo": "cabecalho", "formato": 3, "lilypond": "x"})
+    with pytest.raises(eventos.ErroFormato, match="formato 3"):
         eventos.ler(c)
 
 
 def test_tipo_desconhecido_avisa_uma_vez(tmp_path):
-    c = jsonl(tmp_path, CAB, partitura(), {"tipo": "dinamica", "p": 1, "t": "0"},
-              {"tipo": "dinamica", "p": 1, "t": "1/4"}, nota(), fim())
+    c = jsonl(tmp_path, CAB, partitura(), {"tipo": "futuro", "p": 1, "t": "0"},
+              {"tipo": "futuro", "p": 1, "t": "1/4"}, nota(), fim())
     p = eventos.ler(c)[0]
-    assert sum("dinamica" in x for x in p.avisos) == 1
+    assert sum("futuro" in x for x in p.avisos) == 1
 
 
 def test_pauta_temporaria(tmp_path):

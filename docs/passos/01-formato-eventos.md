@@ -38,7 +38,7 @@ Linhas de voz trazem também `voz` (int) e `pauta` (int). As de pauta trazem `pa
 ### Estrutura
 
 ```json
-{"tipo":"cabecalho","formato":1,"lilypond":"2.26.0"}
+{"tipo":"cabecalho","formato":2,"lilypond":"2.26.0"}
 {"tipo":"partitura","p":1,"so_midi":false}
 {"tipo":"pauta","p":1,"pauta":1,"id":"up","contexto":"Staff","t":"0"}
 {"tipo":"voz","p":1,"voz":1,"id":"","pauta":1,"t":"0"}
@@ -168,6 +168,44 @@ Emitidos pelo engraver de `Score`.
   `volta-repeat-end-event` saem como `{"tipo":"rep-inicio","vezes":3}` e
   `{"tipo":"rep-fim","volta":2}` (de `repeat-count` e `return-count`).
 
+### Notação (formato 2, passo 18)
+
+O formato 2 só **acrescenta** linhas; o leitor aceita o 1 e o 2. Os eventos chegam a todos os
+contextos acima da voz, então a captura os ouve só no engraver de `Voice` (e deduplica o que é da
+partitura inteira, como o andamento). Todas as linhas de voz levam `voz`, `pauta`, `t`, `g`, `c`
+e `pos`; o leitor pendura as de **acorde** no acorde da mesma voz em `(t, g)` ou, na falta dele
+(pausa, espaço), no primeiro acorde de notas depois.
+
+```json
+{"tipo":"articulacao","p":1,"voz":1,"pauta":1,"t":"0","g":"0","c":1,"pos":"0","nome":"staccato"}
+{"tipo":"dedo","p":1,"voz":1,"pauta":1,"t":"1","g":"0","c":2,"pos":"0","digito":1}
+{"tipo":"texto","p":1,"voz":1,"pauta":1,"t":"1","g":"0","c":2,"pos":"0","texto":"cresc."}
+{"tipo":"dinamica","p":1,"voz":1,"pauta":1,"t":"0","g":"0","c":1,"pos":"0","texto":"p"}
+{"tipo":"hairpin","p":1,"voz":1,"pauta":1,"t":"1/2","g":"0","c":1,"pos":"1/2","forma":"cresc","dir":"inicio"}
+{"tipo":"expressao","p":1,"voz":1,"pauta":1,"t":"0","g":"0","c":1,"pos":"0","nome":"slur","dir":"inicio"}
+{"tipo":"pedal","p":1,"voz":1,"pauta":1,"t":"4","g":"0","c":5,"pos":"0","nome":"sustain","dir":"inicio"}
+{"tipo":"andamento","p":1,"t":"0","texto":"Allegro","bpm":120,"unidade":{"fig":2,"pontos":0}}
+{"tipo":"ottava","p":1,"pauta":1,"t":"2","g":"0","c":3,"pos":"0","n":1}
+{"tipo":"estilo-formula","p":1,"pauta":1,"t":"0","g":"0","c":1,"pos":"0","estilo":"numbered"}
+{"tipo":"metadados","p":1,"campos":{"title":"Notação","composer":"Teste","opus":"Op. 1"}}
+```
+
+- `articulacao`: `nome` é o `articulation-type` do LilyPond (`staccato`, `accent`, `tenuto`,
+  `marcato`, `fermata`, `trill`, `mordent`, `prall`, `turn`...), mais `arpeggio` (do
+  `arpeggio-event`).
+- `dedo`/`texto`: `fingering-event` e `text-script-event` (o markup vira texto puro).
+- `hairpin`: `forma` `cresc` ou `decresc`, `dir` `inicio` ou `fim`. O `\!` é um `fim` de forma
+  `cresc` (o LilyPond o entrega como `crescendo-event`): o leitor emparelha por voz e ordem.
+- `expressao`: `nome` é `slur` (`(` `)`) ou `frase` (`\(` `\)`). `pedal`: `nome` é `sustain`,
+  `sostenuto` ou `unacorda`.
+- `andamento`: uma vez por partitura e instante; `bpm` é número, par `[60,80]` ou `null`.
+- `ottava`: `n` é o número de oitavas (`middleCOffset / -7`): `1` = `\ottava #1` (8va), `0` = fim.
+  Só sai quando muda. `estilo-formula`: `C` (o padrão do LilyPond, que desenha C e ₵ em 4/4 e
+  2/2) ou `numbered` (`\numericTimeSignature`), quando muda.
+- `metadados`: o `\header` do arquivo mais o do `\score` (o do `\score` vale mais), chaves e
+  valores em texto. A captura reconstrói o `\score` para entregá-los ao engraver de `Score`
+  pela propriedade `capturaMetadados`.
+
 ### Avisos
 
 ```json
@@ -194,7 +232,7 @@ cada instante. Ele vira `testes/ly/01-contrato.ly` e o JSON vira
 ```
 
 ```json
-{"tipo":"cabecalho","formato":1,"lilypond":"2.26.0"}
+{"tipo":"cabecalho","formato":2,"lilypond":"2.26.0"}
 {"tipo":"partitura","p":1,"so_midi":false}
 {"tipo":"pauta","p":1,"pauta":1,"id":"up","contexto":"Staff","t":"0"}
 {"tipo":"pauta","p":1,"pauta":2,"id":"down","contexto":"Staff","t":"0"}
@@ -204,8 +242,10 @@ cada instante. Ele vira `testes/ly/01-contrato.ly` e o JSON vira
 {"tipo":"formula","p":1,"t":"0","g":"0","c":1,"pos":"-1/4","num":3,"den":4}
 {"tipo":"clave","p":1,"pauta":1,"t":"0","g":"0","c":1,"pos":"-1/4","glifo":"clefs.G","posicao":-2,"transp":0}
 {"tipo":"armadura","p":1,"pauta":1,"t":"0","g":"0","c":1,"pos":"-1/4","tonica":{"oitava":0,"nota":4,"alt":"0"},"alteracoes":[[3,"1/2"]]}
+{"tipo":"estilo-formula","p":1,"pauta":1,"t":"0","g":"0","c":1,"pos":"-1/4","estilo":"C"}
 {"tipo":"clave","p":1,"pauta":2,"t":"0","g":"0","c":1,"pos":"-1/4","glifo":"clefs.F","posicao":2,"transp":0}
 {"tipo":"armadura","p":1,"pauta":2,"t":"0","g":"0","c":1,"pos":"-1/4","tonica":{"oitava":0,"nota":0,"alt":"0"},"alteracoes":[]}
+{"tipo":"estilo-formula","p":1,"pauta":2,"t":"0","g":"0","c":1,"pos":"-1/4","estilo":"C"}
 {"tipo":"nota","p":1,"voz":1,"pauta":1,"t":"0","g":"0","c":1,"pos":"-1/4","altura":{"oitava":1,"nota":1,"alt":"0"},"midi":74,"fig":2,"pontos":0,"escala":"1","dur":"1/4","lig":false}
 {"tipo":"nota","p":1,"voz":2,"pauta":2,"t":"0","g":"0","c":1,"pos":"-1/4","altura":{"oitava":-1,"nota":4,"alt":"0"},"midi":55,"fig":2,"pontos":0,"escala":"1","dur":"1/4","lig":false}
 {"tipo":"compasso","p":1,"t":"1/4","g":"0","c":2,"pos":"0","tam":"3/4","medindo":true}

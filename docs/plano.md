@@ -338,6 +338,23 @@ descobertas:
   (trinado, mordente, arpejo), pedal, `\tempo` com metrônomo, textos (`^\markup`), `\ottava`,
   dedilhado e metadados do `\header` (título, compositor, opus).
 
+**Andamento (07/10/2026, passo 18):** feitos os itens 1 a 11 e 14 da tabela: ligadura de
+expressão (`(` e `\(`), dinâmica, crescendo/diminuendo, articulações e ornamentos (incluindo
+fermata, arpejo e `\portato`), andamento, metadados, dedilhado, pedal, `\ottava`, textos e o
+C/₵ da fórmula. Ficaram de fora o 12 (feixes manuais) e o 13 (símbolo de tremolo; a captura
+avisa `tremolo escrito como notas simples`). O contrato subiu para `formato` 2 (só acrescenta
+linhas; ver `docs/passos/01-formato-eventos.md`). `conversor/notacao.py` aplica tudo depois das
+notas, guardando os elementos criados (`Montagem.refs`) para os `Slur`, `Crescendo`,
+`PedalMark` e `Ottava`. Verificado no `18-notacao.ly` pelo `conferir.py` (as duas colunas
+mostram o mesmo) e nos testes. O `_resumo.csv` ganhou as colunas `dinamicas`, `hairpins`,
+`ligaduras_expr`, `articulacoes`, `pedais` e `andamentos`; a comparação com o MIDI não mudou
+(as notas são as mesmas). Descobertas: (1) o mesmo evento chega ao engraver de `Voice`, de
+`Staff` e de `Score`, então ouvi-lo em mais de um duplica as linhas; (2) `ly:parser-lookup
+'$defaultheader` é o `\header` do arquivo (o `'header` volta vazio); (3) `\sustainOn` e
+`\sustainOff` chegam como `sustain-event` com `span-direction` -1 e 1; (4) o `Fermata` do music21
+sai de ponta-cabeça (`inverted`) se não se pedir `upright`; (5) ligadura de expressão que
+começa numa pauta e termina em outra não é desenhada (cada `Slur` fica numa `PartStaff`).
+
 ## Riscos e decisões em aberto
 
 | Risco | Plano |
