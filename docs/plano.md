@@ -142,6 +142,24 @@ repete `05-book-1.midi` (nome duplicado, como previsto). Nas 31 peças: os mesmo
 `so_midi`), `sonatina-1` tem 3 sem `so_midi`. `Chop-28-2`, `diabeli` e `maple`
 seguem sem partitura por causa dos erros pré-existentes (passo 02).
 
+**Andamento (07/10/2026, passo 06):** `scripts/json-vs-midi.py` (aceita `.ly` ou diretório
+com os `.eventos.jsonl`). As 5 peças simples batem 100% e, nas 31, as 35 partituras das 28 peças que
+geraram partitura batem (status 0); `Chop-28-2`, `diabeli` e `maple` não geram partitura
+(erros pré-existentes do passo 02). **Fase 1 concluída.** Ajustes que o protótipo do passo não previa, todos
+confirmados contra o MIDI: (1) o MIDI tem ticks inteiros, então o 14/5 de uma quiáltera de 5
+vira 4300,8 e o LilyPond arredonda cada início e cada fim: compara-se em ticks, com tolerância
+de 2 (início) e 8 (duração); (2) o MIDI **encurta** a nota por staccato e `\afterGrace`;
+duração menor no MIDI conta como "encurtada", só maior é erro; (3) a continuação de uma
+ligadura é a **próxima nota da mesma altura na voz** a partir do fim, não necessariamente
+no `t + dur` (arpejo de quiálteras ligado ao acorde final, `Chop-28-1`); (4) apojatura ligada
+à principal de mesma altura (`\appoggiatura a8~ a2`) vira uma nota só no MIDI; (5) uníssonos
+entre vozes (mesma altura, mesmo instante, ou sobrepostas) o MIDI funde ou separa, e não dá
+para saber qual `note_off` é de qual `note_on`: comparam-se a maior duração de cada lado e
+isso é contado como `unissonos`; (6) em `Liszt`, `intermezzo`, `Debussy` e outras, o MIDI do
+LilyPond não funde algumas ligaduras sob arpejo; a continuação aparece só no MIDI e é
+contada como `ligaduras nao fundidas no MIDI`, sem ser erro. O log tem um nome de MIDI
+repetido nos arquivos com `\book` + `\score` no topo: o script avisa e não os compara.
+
 - `ly/captura.ly`: notas, pausas e acordes com momento, pauta e voz.
 - Resolver as pegadinhas da injeção:
   - partitura sem `\layout` (só `\midi`): os engravers não rodam. Forçar um `\layout` pelo
