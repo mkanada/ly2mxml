@@ -226,6 +226,29 @@ pauta, `StaffGroup` com chave; o music21 exporta como **um** `<part>` com `<stav
   `\set Timing.measurePosition`).
 - `\cadenzaOn` (sem barras): um compasso longo, com aviso.
 
+**Andamento (07/10/2026, passos 12 e 13):** quiálteras e apojaturas em `montagem.py`.
+
+- *Quiálteras.* A duração vem da figura do LilyPond (tipo + pontos + `Tuplet`) quando o acorde
+  está dentro de um par `quialtera inicio/fim` da voz; fora disso (`c4*2/3`, `s1*3/4`) o music21
+  escolhe a figura pelo `quarterLength`. O `(num, den)` impresso vem do evento (`6/4` numa
+  sextina): a escala sozinha dá `2/3` para `6/4` e para `3/2`. `makeTupletBrackets` roda por
+  `Voice` já com as pausas escondidas dentro, e os colchetes saem. Quiálteras aninhadas (escala
+  `4/9`) não foram tratadas à parte, porque o acervo não tem caso.
+- *Apojaturas.* `getGrace(appoggiatura=not barra)` dá `<grace slash=...>`; várias apojaturas do
+  mesmo grupo mantêm a ordem; a apojatura ligada à principal sai com `tie`. `\afterGrace` entra
+  depois do acorde da voz que a contém (`afterGrace aproximada`); se ela está presa a um espaço
+  (`\afterGrace s2.*4/5 {...}`, `LiederOhneWorte`), fica no próprio instante, num buraco da voz.
+- *Vozes, de novo.* Uma `Voice` do LilyPond pode ter acordes **sobrepostos** (notas de durações
+  diferentes tocadas ao mesmo tempo; `debussy_Ste_Bergamesq_Clair`). Cada camada vira uma voz do
+  MusicXML à parte (`_camadas`), e o agrupamento de vozes por pauta trabalha com a união dos
+  intervalos, não com vizinhos (o teste de vizinhança deixava passar sobreposição).
+- *Comparação.* O MIDI do LilyPond atrasa tudo quando a peça **começa** por apojatura
+  (`13-apojaturas.ly`): a comparação detecta e desconta o atraso. A janela de uma apojatura
+  começa na nota anterior **da mesma voz** (com a de qualquer voz, uma nota da outra mão
+  encurtava a janela do `\afterGrace`).
+- Nas 31 peças, `comparar-midi.py` dá OK em todas as que o `lilypond` compila, **sem** as
+  repetições e os compassos incompletos (passos 14 e 15).
+
 ### Fase 4: lote e regressão (o ciclo que funcionou no Hymn_Grabber)
 - `scripts/converter-todos.py`: converte o acervo em paralelo e grava:
   - `saida/_resumo.csv`: uma linha por peça (compassos, notas, vozes, quiálteras, apojaturas, se o

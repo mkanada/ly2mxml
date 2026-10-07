@@ -54,6 +54,19 @@ def comparar_partitura(principais, apojaturas, midi):
     def ticks(fr):
         return int(round(fr * por_semibreve))
 
+    # Peça que começa por apojatura: o MIDI do LilyPond atrasa tudo o que vem depois (a
+    # apojatura toca em 0 e a primeira nota principal só depois, com todas as outras).
+    if principais and apojaturas:
+        primeiro = min(n["ini"] for n in principais)
+        if any(a["ini"] == primeiro for a in apojaturas):
+            alturas = {n["midi"] for n in principais if n["ini"] == primeiro}
+            depois = sorted(ini for ini, altura, _ in notas_midi
+                            if altura in alturas and ini > ticks(primeiro))
+            atraso = depois[0] - ticks(primeiro) if depois else 0
+            if 0 < atraso < por_semibreve // 4:
+                notas_midi = [(ini - atraso if ini >= atraso else ini, altura, dur)
+                              for ini, altura, dur in notas_midi]
+
     # Apojaturas: pegam, no MIDI, uma nota de mesma altura entre o início da nota principal
     # anterior e o início da nota principal em que a apojatura cai. Essas notas saem do
     # multiconjunto antes da comparação principal.
@@ -67,7 +80,10 @@ def comparar_partitura(principais, apojaturas, midi):
                     ligadas.add(id(n))
                     break
     principais_midi = [n for n in principais if id(n) not in ligadas]
-    inicios = sorted({ticks(n["ini"]) for n in principais})
+    inicios_por_voz = defaultdict(set)
+    for n in principais:
+        inicios_por_voz[n["voz"]].add(ticks(n["ini"]))
+    inicios_por_voz = {v: sorted(x) for v, x in inicios_por_voz.items()}
     restantes = list(notas_midi)
     apoj_ok = 0
     apoj_faltam = []
@@ -75,8 +91,10 @@ def comparar_partitura(principais, apojaturas, midi):
         # `a["ini"]` é o tempo da nota principal; num \afterGrace não há nota principal ali,
         # e a janela termina nele mesmo.
         alvo = ticks(a["ini"])
+        # A janela começa na nota anterior da mesma voz (a apojatura roubou tempo dela).
+        inicios = inicios_por_voz.get(a["voz"], [])
         pos = bisect.bisect_left(inicios, alvo - TOLERANCIA_TICKS)
-        janela_ini = inicios[pos - 1] if pos > 0 else -1
+        janela_ini = inicios[pos - 1] if pos > 0 else -10**9
         achou = None
         for i, (ini, midi_n, dur) in enumerate(restantes):
             if (midi_n == a["midi"] and janela_ini + TOLERANCIA_TICKS < ini
@@ -248,7 +266,7 @@ def notas_do_musicxml(caminho):
     for parte in raiz.findall("part"):
         inicio_compasso = Fraction(0)          # em semínimas
         divisoes = 1
-        abertas = {}                      # (voz, staff, midi) -> nota aberta por ligadura
+        abertas = {}                      # (voz, midi) -> nota aberta por ligadura
         for compasso in parte.findall("measure"):
             numero = compasso.get("number", "?")
             cursor = 0                    # em divisões, desde o início do compasso
@@ -281,7 +299,7 @@ def notas_do_musicxml(caminho):
                         nota = {"ini": ini, "dur": Fraction(dur, divisoes) / 4, "midi": midi,
                                 "c": numero, "voz": (voz, staff), "lig": "start" in ligas,
                                 "g": Fraction(0), "continuacoes": []}
-                        chave = (voz, staff, midi)
+                        chave = (voz, midi)
                         anterior = abertas.get(chave)
                         if graca:
                             nota["g"] = Fraction(-1)

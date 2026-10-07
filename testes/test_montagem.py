@@ -74,3 +74,50 @@ def test_atributos_do_passo_09(tmp_path):
     # Barra final.
     assert compassos[-1].findtext("barline/bar-style") == "light-heavy" or any(
         b.findtext("bar-style") == "light-heavy" for b in raiz_.iter("barline"))
+
+
+def converter(tmp_path, nome):
+    from conversor import pipeline
+    r = pipeline.converter_peca(TESTES_LY / f"{nome}.ly", tmp_path, tmp_path / "x.musicxml",
+                                sem_midi=False)
+    return r, raiz(r.gravadas[0].arquivo)
+
+
+@pytest.mark.lilypond
+def test_quialteras_12(tmp_path):
+    r, raiz_ = converter(tmp_path, "12-quialteras")
+    notas = [n for n in raiz_.iter("note") if n.findtext("staff") == "1"]
+    razoes = {(tm.findtext("actual-notes"), tm.findtext("normal-notes"))
+              for n in notas for tm in n.findall("time-modification")}
+    assert razoes == {("3", "2"), ("6", "4"), ("5", "4")}
+    # Todo colchete que abre fecha, em cada voz.
+    for voz in {n.findtext("voice") for n in notas}:
+        marcas = [t.get("type") for n in notas if n.findtext("voice") == voz
+                  for t in n.findall("notations/tuplet")]
+        assert marcas.count("start") == marcas.count("stop") > 0 or not marcas
+    assert r.gravadas[0].avisos == []
+
+
+@pytest.mark.lilypond
+def test_apojaturas_13(tmp_path):
+    r, raiz_ = converter(tmp_path, "13-apojaturas")
+    graca = [n for n in raiz_.iter("note") if n.find("grace") is not None]
+    assert len(graca) == 13
+    # \acciaccatura e \slashedGrace têm barra; \grace e \appoggiatura não.
+    barras = [g.find("grace").get("slash") for g in graca[:4]]
+    assert barras == ["no", "yes", "no", "yes"]
+    # A apojatura vem antes da nota principal no mesmo compasso.
+    primeiro = list(raiz_.find("part/measure"))
+    nomes = [n.findtext("pitch/step") for n in primeiro if n.tag == "note"
+             and n.findtext("staff") == "1"]
+    assert nomes[:2] == ["D", "C"]
+
+
+@pytest.mark.lilypond
+@pytest.mark.parametrize("nome", ["12-quialteras", "13-apojaturas", "03-vozes"])
+def test_bate_com_o_midi(nome):
+    import subprocess, sys
+    from conftest import RAIZ
+    r = subprocess.run([sys.executable, str(RAIZ / "scripts" / "comparar-midi.py"),
+                        str(TESTES_LY / f"{nome}.ly")], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr

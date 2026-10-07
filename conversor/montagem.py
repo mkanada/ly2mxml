@@ -13,6 +13,8 @@ from pathlib import Path
 from music21 import (bar, clef, duration, key, layout, metadata, meter, note, chord, pitch,
                      stream, tie)
 
+from .eventos import Figura
+
 QUATRO = Fraction(4)
 ZERO = Fraction(0)
 
@@ -182,22 +184,46 @@ def _duracoes(ql: Fraction):
 # Vozes do MusicXML
 # ---------------------------------------------------------------------------
 
-def _atribuir_vozes(m: Montagem, pautas, por_pauta):
-    """Para cada pauta, `{voz do LilyPond: número da voz do MusicXML}`.
+def _camadas(acordes):
+    """`{id(acorde): camada}`: uma voz do LilyPond pode ter acordes sobrepostos (notas de
+    durações diferentes tocadas ao mesmo tempo na mesma `Voice`). Cada camada é uma voz do
+    MusicXML à parte."""
+    camadas = {}
+    fins = {}                 # voz -> fim do último acorde de cada camada
+    for a in sorted((x for x in acordes if x.g == 0), key=lambda x: (x.t, x.fim)):
+        lista = fins.setdefault(a.voz, [])
+        for k, fim in enumerate(lista):
+            if fim <= a.t:
+                lista[k] = a.fim
+                camadas[id(a)] = k
+                break
+        else:
+            lista.append(a.fim)
+            camadas[id(a)] = len(lista) - 1
+    return camadas
+
+
+def _atribuir_vozes(m: Montagem, pautas, por_pauta, camadas):
+    """Para cada pauta, `{(voz do LilyPond, camada): número da voz do MusicXML}`.
 
     Vozes que não se sobrepõem no tempo compartilham o mesmo número (o LilyPond cria muitas
     `\\new Voice` curtas). A que tem mais notas é a 1ª. Passando de 4 vozes simultâneas numa
-    pauta, os números seguintes vão a partir de 9 e há um aviso.
+    pauta, os números seguintes vão a partir de 9 e há um aviso. Apojaturas não ocupam tempo e
+    não entram na conta: a voz que só tem apojaturas na pauta cai no número da 1ª.
     """
     resultado = {}
     extra = 9
     for i, pauta in enumerate(pautas):
         por_voz = {}
+        so_gracas = set()
         for a in por_pauta[pauta]:
             if a.g == 0:
-                por_voz.setdefault(a.voz, []).append(a)
+                por_voz.setdefault((a.voz, camadas[id(a)]), []).append(a)
+        for a in por_pauta[pauta]:
+            if a.g != 0 and (a.voz, 0) not in por_voz:
+                so_gracas.add((a.voz, 0))
         ordem = sorted(por_voz, key=lambda v: (-len(por_voz[v]), v))
-        slots = []         # cada slot: lista de intervalos (ini, fim) ocupados
+        slots = []         # cada slot: intervalos disjuntos (união) ocupados
         mapa = {}
         for v in ordem:
             intervalos = sorted((a.t, a.fim) for a in por_voz[v])
@@ -209,13 +235,15 @@ def _atribuir_vozes(m: Montagem, pautas, por_pauta):
             if destino is None:
                 slots.append([])
                 destino = len(slots) - 1
-            slots[destino] = sorted(slots[destino] + intervalos)
+            slots[destino] = _unir(slots[destino] + intervalos)
             mapa[v] = destino
+        for v in so_gracas:
+            mapa[v] = 0
         if len(slots) > VOZES_POR_PAUTA:
             m.avisar(f"mais de {VOZES_POR_PAUTA} vozes simultâneas na pauta {pauta}: "
                      f"{len(slots)} (as extras saem com número de voz alto)")
         numeros = {}
-        for s in range(len(slots)):
+        for s in range(max(len(slots), 1)):
             if s < VOZES_POR_PAUTA:
                 numeros[s] = i * VOZES_POR_PAUTA + s + 1
             else:
@@ -225,8 +253,19 @@ def _atribuir_vozes(m: Montagem, pautas, por_pauta):
     return resultado
 
 
+def _unir(intervalos):
+    """União de intervalos (início, fim): lista ordenada de intervalos disjuntos."""
+    uniao = []
+    for ini, fim in sorted(intervalos):
+        if uniao and ini <= uniao[-1][1]:
+            uniao[-1] = (uniao[-1][0], max(uniao[-1][1], fim))
+        else:
+            uniao.append((ini, fim))
+    return uniao
+
+
 def _sobrepoe(ocupado, novos):
-    """Algum intervalo de `novos` invade um de `ocupado`? Os dois estão em ordem."""
+    """Algum intervalo de `novos` invade a união `ocupado`? Encostar não é invadir."""
     inicios = [o[0] for o in ocupado]
     for ini, fim in novos:
         k = bisect_right(inicios, ini)
@@ -280,7 +319,8 @@ def _construir(m: Montagem):
     if perdidos:
         m.avisar(f"{perdidos} acordes em pautas ignoradas descartados")
 
-    numeros_voz = _atribuir_vozes(m, ativas, por_pauta)
+    camadas = _camadas([a for lista in por_pauta.values() for a in lista])
+    numeros_voz = _atribuir_vozes(m, ativas, por_pauta, camadas)
 
     partes = {}
     for i, n in enumerate(ativas):
@@ -293,7 +333,7 @@ def _construir(m: Montagem):
 
     for i, n in enumerate(ativas):
         _montar_pauta(m, ps, partes[n], n, i * VOZES_POR_PAUTA + 1, por_pauta[n], numeros_voz[n],
-                      medidas, compasso_de)
+                      camadas, medidas, compasso_de)
 
     sc = stream.Score()
     sc.metadata = metadata.Metadata()
@@ -305,7 +345,8 @@ def _construir(m: Montagem):
     return sc
 
 
-def _montar_pauta(m, ps, parte, n_pauta, base_voz, acordes, numeros, medidas, compasso_de):
+def _montar_pauta(m, ps, parte, n_pauta, base_voz, acordes, numeros, camadas, medidas,
+                  compasso_de):
     por_medida = [stream.Measure(number=md.numero) for md in medidas]
     for md, obj in zip(medidas, por_medida):
         if md.sufixo:
@@ -340,6 +381,10 @@ def _montar_pauta(m, ps, parte, n_pauta, base_voz, acordes, numeros, medidas, co
             if md.t1 == b.t:
                 obj.rightBarline = bar.Barline(estilo)
 
+    # Apojaturas: o instante e o compasso onde cada uma entra.
+    gracas = _posicionar_gracas(m, ps, acordes, medidas, compasso_de)
+    qi = _intervalos_quialtera(ps)
+
     # Notas e pausas, por voz e por compasso.
     for k, (md, obj) in enumerate(zip(medidas, por_medida)):
         vozes = {}
@@ -349,16 +394,57 @@ def _montar_pauta(m, ps, parte, n_pauta, base_voz, acordes, numeros, medidas, co
             if a.t < md.t1 and a.fim > md.t0:
                 pedaco = Peca(a, max(a.t, md.t0), min(a.fim, md.t1),
                               a.t >= md.t0, a.fim <= md.t1)
-                vozes.setdefault(numeros[a.voz], []).append(pedaco)
+                vozes.setdefault(numeros[(a.voz, camadas[id(a)])], []).append(pedaco)
+        for a, pos in gracas.get(k, []):
+            vozes.setdefault(numeros.get((a.voz, 0), base_voz), []).append(
+                Peca(a, pos, pos, True, True))
         for numero_voz in sorted(vozes):
             v = stream.Voice(id=numero_voz)
-            _preencher_voz(m, v, md, sorted(vozes[numero_voz], key=lambda p: p.ini))
+            _preencher_voz(m, v, md, sorted(
+                vozes[numero_voz], key=lambda p: (p.ini, p.acorde.g == 0, p.acorde.g)), qi)
             obj.insert(0, v)
         if not vozes:
             v = stream.Voice(id=base_voz)
-            _preencher_voz(m, v, md, [])
+            _preencher_voz(m, v, md, [], qi)
             obj.insert(0, v)
         parte.insert(md.t0 * QUATRO, obj)
+
+
+def _posicionar_gracas(m, ps, acordes, medidas, compasso_de):
+    """`{índice do compasso: [(apojatura, instante)]}`.
+
+    A apojatura entra no instante `t` da nota principal da mesma voz. Sem nota principal ali
+    (`\\afterGrace`, que cai dentro da nota anterior), entra depois do acorde da voz que contém
+    `t`, que é onde o MusicXML a põe (antes da nota seguinte); com aviso.
+    """
+    resultado = {}
+    principais = {}
+    for voz in ps.vozes.values():
+        for a in voz.acordes:
+            if a.g == 0 and a.alturas:
+                principais.setdefault((voz.voz, a.t), a)
+    for a in acordes:
+        if a.g == 0:
+            continue
+        if not a.alturas:
+            continue
+        pos = a.t
+        if (a.voz, a.t) not in principais:
+            continente = next((x for x in ps.vozes[a.voz].acordes
+                               if x.g == 0 and x.t < a.t < x.fim), None)
+            if continente is None:
+                # Presa a um espaço (`\\afterGrace s2.*4/5 { ... }`): fica onde está, num buraco
+                # da voz (a pausa escondida é partida ali).
+                m.avisar(f"afterGrace sobre espaço (c={a.c}, t={a.t})")
+            else:
+                pos = continente.fim
+                m.avisar(f"afterGrace aproximada (c={a.c}, t={a.t})")
+                if pos >= ps.fim:
+                    m.avisar(f"apojatura no fim da peça descartada (c={a.c}, t={a.t})")
+                    continue
+        md = compasso_de(pos)
+        resultado.setdefault(medidas.index(md), []).append((a, pos))
+    return resultado
 
 
 def _inserir_atributo(m, por_medida, medidas, md, t, obj, nome):
@@ -373,17 +459,22 @@ def _inserir_atributo(m, por_medida, medidas, md, t, obj, nome):
     por_medida[i].insert(offset, obj)
 
 
-def _preencher_voz(m, voz, md, pedacos):
+def _preencher_voz(m, voz, md, pedacos, quialteras):
     """Notas e pausas de uma voz num compasso, com pausas escondidas nos buracos."""
     cursor = md.t0
     for p in pedacos:
+        if p.ini < cursor and p.acorde.g != 0:
+            # Apojatura no meio de uma nota sustentada da mesma voz: o MusicXML não tem como
+            # pô-la ali, e ela vai para depois da nota.
+            m.avisar(f"apojatura deslocada para o fim da nota (c={p.acorde.c}, t={p.ini})")
+            p = Peca(p.acorde, cursor, cursor, True, True)
         if p.ini < cursor:
             m.avisar(f"notas sobrepostas na mesma voz no compasso {md.rotulo} (t={p.ini}): "
                      f"descartada")
             continue
         if p.ini > cursor:
             _inserir_pausa_escondida(voz, md, cursor, p.ini)
-        _inserir_peca(m, voz, md, p)
+        _inserir_peca(m, voz, md, p, quialteras)
         cursor = p.fim
     if cursor < md.t1 and pedacos:
         _inserir_pausa_escondida(voz, md, cursor, md.t1)
@@ -405,44 +496,119 @@ def _inserir_pausa_escondida(voz, md, ini, fim):
         off += d.quarterLength
 
 
-def _inserir_peca(m, voz, md, p):
+TIPOS = {-2: "longa", -1: "breve", 0: "whole", 1: "half", 2: "quarter", 3: "eighth",
+         4: "16th", 5: "32nd", 6: "64th", 7: "128th", 8: "256th"}
+
+
+def _duracao_figura(f, razao=None):
+    """`Duration` a partir da figura do LilyPond (tipo, pontos e a escala da quiáltera).
+
+    `razao` é o `(num, den)` impresso da quiáltera (6/4 numa sextina), que a escala sozinha
+    perde (6/4 e 3/2 dão a mesma escala, 2/3).
+    """
+    tipo = TIPOS.get(f.fig)
+    if tipo is None:
+        return None
+    d = duration.Duration(type=tipo, dots=f.pontos)
+    if f.escala != 1:
+        if razao is None or Fraction(razao[1], razao[0]) != f.escala:
+            razao = (f.escala.denominator, f.escala.numerator)
+        d.appendTuplet(duration.Tuplet(
+            numberNotesActual=razao[0], numberNotesNormal=razao[1],
+            durationActual=duration.Duration(type=tipo),
+            durationNormal=duration.Duration(type=tipo)))
+    return d
+
+
+def _durs_da_peca(p, ql, quialtera):
+    """Durações do pedaço: a figura exata quando o pedaço é o acorde inteiro.
+
+    `quialtera` é o `(início, fim, num, den)` da quiáltera que contém o acorde, ou None. Sem ela,
+    uma escala (`c4*2/3`) não vira quiáltera: o music21 escolhe a figura.
+    """
+    a = p.acorde
+    if p.primeiro and p.ultimo and not a.compasso_inteiro and (a.figura.escala == 1
+                                                               or quialtera is not None):
+        d = _duracao_figura(a.figura, quialtera[2:] if quialtera else None)
+        if d is not None and d.quarterLength == ql:
+            return [d]
+    return _duracoes(ql)
+
+
+def _criar_elemento(a, d, interno_ant, interno_prox, inicio, fim):
+    """Nota ou acorde com a duração `d`.
+
+    `interno_ant`/`interno_prox`: o pedaço continua o anterior / tem outro depois dele (corte na
+    barra). `inicio`/`fim`: é o primeiro/último pedaço do acorde, onde valem `lig_chega`/`lig`.
+    """
+    objs = []
+    for h, lig, chega in zip(a.alturas, a.lig, a.lig_chega):
+        ant = interno_ant or (inicio and chega)
+        prox = interno_prox or (fim and lig)
+        n = note.Note()
+        n.pitch = _pitch(h)
+        if ant and prox:
+            n.tie = tie.Tie("continue")
+        elif prox:
+            n.tie = tie.Tie("start")
+        elif ant:
+            n.tie = tie.Tie("stop")
+        objs.append(n)
+    elem = objs[0] if len(objs) == 1 else chord.Chord(objs)
+    elem.duration = d
+    return elem
+
+
+def _inserir_peca(m, voz, md, p, quialteras):
     a = p.acorde
     off = (p.ini - md.t0) * QUATRO
-    ql = (p.fim - p.ini) * QUATRO
-    if not a.alturas:
-        # Pausa (ou pausa de compasso, um pedaço por compasso).
-        for d in _duracoes(ql):
-            r = note.Rest()
-            r.duration = d
-            if a.compasso_inteiro:
-                r.fullMeasure = True
-            voz.insert(off, r)
-            off += d.quarterLength
+    if a.g != 0:
+        # Apojatura: sem duração no compasso; barra (cortada) quando `a.barra`.
+        sem_escala = Figura(a.figura.fig, a.figura.pontos, Fraction(1), a.figura.dur)
+        d = _duracao_figura(sem_escala) or duration.Duration(0.25)
+        elem = _criar_elemento(a, d, False, False, True, True)
+        voz.insert(off, elem.getGrace(appoggiatura=not a.barra))
         return
-    durs = _duracoes(ql)
+    ql = (p.fim - p.ini) * QUATRO
+    durs = _durs_da_peca(p, ql, _quialtera_de(quialteras, a))
     for j, d in enumerate(durs):
-        tem_anterior = (not p.primeiro) or j > 0
-        tem_proximo = (not p.ultimo) or j < len(durs) - 1
-        objs = []
-        for h, lig, chega in zip(a.alturas, a.lig, a.lig_chega):
-            n = note.Note()
-            n.pitch = _pitch(h)
-            ant = tem_anterior or (p.primeiro and j == 0 and chega)
-            prox = tem_proximo or (p.ultimo and j == len(durs) - 1 and lig)
-            if ant and prox:
-                n.tie = tie.Tie("continue")
-            elif prox:
-                n.tie = tie.Tie("start")
-            elif ant:
-                n.tie = tie.Tie("stop")
-            objs.append(n)
-        if len(objs) == 1:
-            elem = objs[0]
+        if not a.alturas:
+            # Pausa (ou pausa de compasso, um pedaço por compasso).
+            elem = note.Rest()
+            elem.duration = d
+            if a.compasso_inteiro:
+                elem.fullMeasure = True
         else:
-            elem = chord.Chord(objs)
-        elem.duration = d
+            elem = _criar_elemento(a, d, (not p.primeiro) or j > 0,
+                                   (not p.ultimo) or j < len(durs) - 1,
+                                   p.primeiro and j == 0, p.ultimo and j == len(durs) - 1)
         voz.insert(off, elem)
         off += d.quarterLength
+
+
+def _quialtera_de(intervalos, a):
+    """A quiáltera mais interna da voz que contém o acorde (início, fim, num, den), ou None."""
+    achou = None
+    for q in intervalos.get(a.voz, ()):
+        if q[0] <= a.t < q[1] and (achou is None or q[0] >= achou[0]):
+            achou = q
+    return achou
+
+
+def _intervalos_quialtera(ps):
+    """`{voz: [(início, fim, num, den)]}` dos pares `quialtera inicio`/`fim` de cada voz."""
+    resultado = {}
+    for voz, linhas in ps.quialteras.items():
+        pilha, pares = [], []
+        for q in sorted(linhas, key=lambda x: x.t):
+            if q.dir == "inicio":
+                pilha.append(q)
+            elif pilha:
+                ini = pilha.pop()
+                pares.append((ini.t, q.t, ini.num, ini.den))
+        pares += [(ini.t, ps.fim, ini.num, ini.den) for ini in pilha]
+        resultado[voz] = pares
+    return resultado
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +618,8 @@ def _inserir_peca(m, voz, md, p):
 def _gravar(m, sc, saida: Path):
     for parte in sc.parts:
         for md in parte.getElementsByClass(stream.Measure):
+            for v in md.voices:
+                stream.makeNotation.makeTupletBrackets(v, inPlace=True)
             try:
                 md.makeBeams(inPlace=True, setStemDirections=False)
             except Exception as erro:       # compasso estourado ou fórmula ausente
